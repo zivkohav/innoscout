@@ -1,3 +1,4 @@
+
 import React, { useState, useRef } from 'react';
 import { Answer, EvaluationResult, AppState, StartupCandidate } from './types';
 import ClarificationWizard from './components/ClarificationWizard';
@@ -199,17 +200,21 @@ const App: React.FC = () => {
             </p>
             
             <div className="w-full relative">
-              <input
-                type="text"
+              <textarea
                 value={state.innovationTopic}
                 onChange={(e) => setState(prev => ({...prev, innovationTopic: e.target.value}))}
-                onKeyDown={(e) => e.key === 'Enter' && startClarification()}
-                placeholder="e.g., 'Carbon capture technologies for industrial manufacturing'..."
-                className="w-full p-4 pl-6 pr-14 text-lg bg-slate-800 border-2 border-slate-700 rounded-full focus:border-violet-500 focus:ring-4 focus:ring-violet-500/20 text-white placeholder-slate-500 transition-all outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    startClarification();
+                  }
+                }}
+                placeholder="e.g., 'Carbon capture technologies for industrial manufacturing. We are specifically looking for Series A startups with proven pilots in Europe...'"
+                className="w-full p-4 pl-6 pr-16 text-lg bg-slate-800 border-2 border-slate-700 rounded-2xl focus:border-violet-500 focus:ring-4 focus:ring-violet-500/20 text-white placeholder-slate-500 transition-all outline-none resize-none min-h-[140px]"
               />
               <button 
                 onClick={startClarification}
-                className="absolute right-2 top-2 bottom-2 bg-violet-600 hover:bg-violet-500 text-white p-3 rounded-full transition-colors"
+                className="absolute right-3 bottom-3 bg-violet-600 hover:bg-violet-500 text-white p-3 rounded-xl transition-colors shadow-lg"
                 disabled={!state.innovationTopic}
               >
                 <ArrowRightIcon />
