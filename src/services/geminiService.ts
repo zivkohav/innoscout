@@ -32,9 +32,31 @@ const cleanJson = (text: string) => {
   return cleaned;
 };
 
+// Helper to extract a human-readable message from raw API errors
+const getFriendlyErrorMessage = (error: any): string => {
+  const rawMsg = error?.message || error?.toString() || "Unknown error";
+  
+  // 1. Try to parse JSON error bodies (common with GoogleGenAI)
+  try {
+    // Look for a JSON pattern in the message
+    const jsonMatch = rawMsg.match(/\{.*"error":.*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.error?.message) {
+        return parsed.error.message;
+      }
+    }
+  } catch (e) {
+    // Ignore parsing errors
+  }
+
+  // 2. Fallback to raw message if parsing failed
+  return rawMsg;
+};
+
 // Helper to identify auth/key errors case-insensitively
 const isAuthError = (error: any) => {
-  const msg = error?.message?.toLowerCase() || "";
+  const msg = (error?.message || JSON.stringify(error)).toLowerCase();
   return error?.status === 403 || msg.includes('api key') || msg.includes('permission_denied');
 };
 
@@ -70,7 +92,7 @@ const callGenAI = async (model: string, params: any) => {
     const apiKey = getApiKey();
 
     if (!apiKey) {
-        throw new Error("API Key is missing. For Vercel, ensure 'VITE_API_KEY' is set in environment variables. For AI Studio, select a key.");
+        throw new Error("API Key is missing. If deploying to Vercel/Netlify, please ensure the 'VITE_API_KEY' environment variable is set in your project settings.");
     }
 
     // Always create a new instance to pick up the latest key
@@ -85,18 +107,28 @@ const callGenAI = async (model: string, params: any) => {
     return await executeRequest();
   } catch (error: any) {
     // Check for Permission Denied (403) or specific API Key messages
-    if (isAuthError(error) && typeof window !== 'undefined' && (window as any).aistudio) {
-      console.log("Auth error detected. Attempting to prompt for new key via AI Studio...");
-      try {
-        await (window as any).aistudio.openSelectKey();
-        // Retry the request once after key selection
-        return await executeRequest();
-      } catch (retryError) {
-        console.error("Retry failed:", retryError);
-        throw error; // Throw the original error if retry fails
+    if (isAuthError(error)) {
+      const isStudio = typeof window !== 'undefined' && (window as any).aistudio;
+      
+      if (isStudio) {
+        console.log("Auth error detected in Studio. Attempting to prompt for new key...");
+        try {
+          await (window as any).aistudio.openSelectKey();
+          // Retry the request once after key selection
+          return await executeRequest();
+        } catch (retryError) {
+          console.error("Retry failed:", retryError);
+          // Fall through to throw the friendly error
+        }
+      } else {
+        // We are in a deployed environment (e.g., Vercel)
+        const rawMessage = getFriendlyErrorMessage(error);
+        throw new Error(`API Authentication Error: ${rawMessage}. \n\nAction: Please update your 'VITE_API_KEY' environment variable in your deployment settings with a valid, non-leaked key.`);
       }
     }
-    throw error;
+    
+    // For non-auth errors, clean up the message
+    throw new Error(getFriendlyErrorMessage(error));
   }
 };
 
@@ -394,7 +426,7 @@ export const evaluateStartup = async (
         return processResponse(result);
     } catch (fatalError: any) {
         console.error("Evaluation failed completely", fatalError);
-        throw new Error(fatalError.message || "Failed to evaluate startup.");
+        throw fatalError; // Re-throw sanitized error
     }
   }
 };

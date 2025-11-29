@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Answer, EvaluationResult, AppState, StartupCandidate } from './types';
 import ClarificationWizard from './components/ClarificationWizard';
@@ -148,7 +147,7 @@ const App: React.FC = () => {
             setSearchStatus('idle');
         } catch (error: any) {
             console.error(error);
-            alert(`Evaluation Failed: ${error.message || "Unknown error"}`);
+            alert(`Evaluation Failed: ${error.message}`);
             setSearchStatus('idle');
         }
     } else {
@@ -165,7 +164,7 @@ const App: React.FC = () => {
             }
         } catch (error: any) {
             console.error(error);
-            alert(`Search Failed: ${error.message || "Please check your connection or API key."}`);
+            alert(`Search Failed: ${error.message}`);
             setSearchStatus('idle');
         }
     }
@@ -189,7 +188,7 @@ const App: React.FC = () => {
       setCandidates([]);
     } catch (error: any) {
       console.error(error);
-      alert(`Evaluation Failed: ${error.message || "Please check your API key."}`);
+      alert(`Evaluation Failed: ${error.message}`);
       setSearchStatus('selecting'); // Go back to selection
     }
   };
