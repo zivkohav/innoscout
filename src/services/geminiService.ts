@@ -81,15 +81,18 @@ export const generateClarificationQuestions = async (topic: string): Promise<Que
 export const findStartups = async (query: string): Promise<StartupCandidate[]> => {
   const model = "gemini-2.5-flash";
   const prompt = `
-    Search for startups or technology companies that match this description: "${query}".
-    
-    Identify up to 4 distinct, real companies.
-    For each company, provide:
-    1. Name
-    2. Website URL (if found in search results)
-    3. A brief 1-sentence description of what they do.
+    User Query: "${query}"
 
-    Output the result strictly as a JSON array of objects with keys: "name", "url", "description".
+    Task: Search for startups or technology companies that match this name or description.
+    
+    Instructions:
+    1. **Disambiguate**: If the query is a specific name (e.g., "Neo"), look for distinct companies with that name or similar variations (e.g., "Neo Cyber", "Neo Materials").
+    2. **Digital Footprint**: For each company, prioritize finding their **Official Website**. If not found, find their **LinkedIn Company Page**.
+    3. **Description**: Provide a brief 1-sentence description of their core technology.
+
+    Retrieve up to 5 distinct, real candidates.
+
+    Output strictly as a JSON array of objects with keys: "name", "url", "description".
     Do not add any markdown formatting outside the JSON.
   `;
 

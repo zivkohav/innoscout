@@ -1,6 +1,6 @@
 import React from 'react';
 import { StartupCandidate } from '../types';
-import { Globe, ArrowRight, X } from 'lucide-react';
+import { Globe, ArrowRight, X, Linkedin } from 'lucide-react';
 
 interface Props {
   candidates: StartupCandidate[];
@@ -24,29 +24,37 @@ const StartupSelector: React.FC<Props> = ({ candidates, onSelect, onCancel }) =>
              No startups found matching that description. Try refining your search.
            </div>
         ) : (
-          candidates.map((candidate) => (
-            <div 
-              key={candidate.id}
-              onClick={() => onSelect(candidate)}
-              className="group flex items-start gap-4 p-4 rounded-lg hover:bg-slate-700/50 cursor-pointer transition-colors border border-transparent hover:border-slate-600"
-            >
-              <div className="mt-1 w-10 h-10 rounded-full bg-violet-900/30 flex items-center justify-center text-violet-400 group-hover:bg-violet-600 group-hover:text-white transition-colors">
-                <Globe className="w-5 h-5" />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                    <h4 className="text-white font-medium group-hover:text-violet-300 transition-colors">{candidate.name}</h4>
-                    {candidate.url && (
-                        <span className="text-xs text-slate-500 truncate max-w-[200px]">{new URL(candidate.url).hostname}</span>
-                    )}
+          candidates.map((candidate) => {
+            const isLinkedin = candidate.url?.toLowerCase().includes('linkedin.com');
+            
+            return (
+              <div 
+                key={candidate.id}
+                onClick={() => onSelect(candidate)}
+                className="group flex items-start gap-4 p-4 rounded-lg hover:bg-slate-700/50 cursor-pointer transition-colors border border-transparent hover:border-slate-600"
+              >
+                <div className={`mt-1 w-10 h-10 rounded-full flex items-center justify-center transition-colors 
+                  ${isLinkedin 
+                    ? 'bg-blue-900/30 text-blue-400 group-hover:bg-blue-600 group-hover:text-white' 
+                    : 'bg-violet-900/30 text-violet-400 group-hover:bg-violet-600 group-hover:text-white'}`}
+                >
+                  {isLinkedin ? <Linkedin className="w-5 h-5" /> : <Globe className="w-5 h-5" />}
                 </div>
-                <p className="text-sm text-slate-400 mt-1 line-clamp-2">{candidate.description}</p>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                      <h4 className="text-white font-medium group-hover:text-violet-300 transition-colors">{candidate.name}</h4>
+                      {candidate.url && (
+                          <span className="text-xs text-slate-500 truncate max-w-[200px]">{new URL(candidate.url).hostname}</span>
+                      )}
+                  </div>
+                  <p className="text-sm text-slate-400 mt-1 line-clamp-2">{candidate.description}</p>
+                </div>
+                <div className="self-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <ArrowRight className="w-5 h-5 text-violet-400" />
+                </div>
               </div>
-              <div className="self-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <ArrowRight className="w-5 h-5 text-violet-400" />
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
       
