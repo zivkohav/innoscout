@@ -435,7 +435,7 @@ export const formalizeRefinementRule = async (rawInput: string): Promise<string>
   const model = "gemini-2.5-flash";
   const prompt = `
     Transform the following user feedback into a specific, actionable evaluation rule for analyzing startups.
-    The rule should be phrased as a directive for an AI evaluator.
+    The rule should be phrased as a directive for an AI evaluator. d
 
     User Input: "${rawInput}"
 
