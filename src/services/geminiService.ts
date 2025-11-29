@@ -1,10 +1,6 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { Question, EvaluationResult, Answer, StartupCandidate } from "../types";
 
-// VITE FIX: Use import.meta.env instead of process.env
-const apiKey = import.meta.env.VITE_API_KEY || "";
-const ai = new GoogleGenAI({ apiKey });
-
 // Helper to sanitize JSON strings if the model returns markdown code blocks
 const cleanJson = (text: string) => {
   if (!text) return "";
@@ -36,12 +32,49 @@ const cleanJson = (text: string) => {
   return cleaned;
 };
 
+// Helper to identify auth/key errors case-insensitively
+const isAuthError = (error: any) => {
+  const msg = error?.message?.toLowerCase() || "";
+  return error?.status === 403 || msg.includes('api key') || msg.includes('permission_denied');
+};
+
+// Helper to safely retrieve API Key across different environments (AI Studio vs Vercel/Vite)
+const getApiKey = (): string | undefined => {
+  // 1. Try process.env (AI Studio, Node.js)
+  try {
+    if (typeof process !== "undefined" && process.env?.API_KEY) {
+      return process.env.API_KEY;
+    }
+  } catch (e) {
+    // process is likely undefined
+  }
+
+  // 2. Try import.meta.env (Vite / Vercel)
+  // Note: In Vercel, you must set the environment variable as VITE_API_KEY for it to be exposed.
+  try {
+    // @ts-ignore: Vite specific types might not be inferred depending on config
+    if (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_KEY) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_KEY;
+    }
+  } catch (e) {
+    // import.meta is likely undefined
+  }
+  
+  return undefined;
+};
+
 // Wrapper to handle API calls with dynamic key injection and retry logic for 403s
 const callGenAI = async (model: string, params: any) => {
   const executeRequest = async () => {
-    // Always create a new instance to pick up the latest process.env.API_KEY
-    // This is critical for race conditions where the key is injected after load
-    const ai = new GoogleGenAI({ apiKey: import.meta.env.API_KEY });
+    const apiKey = getApiKey();
+
+    if (!apiKey) {
+        throw new Error("API Key is missing. For Vercel, ensure 'VITE_API_KEY' is set in environment variables. For AI Studio, select a key.");
+    }
+
+    // Always create a new instance to pick up the latest key
+    const ai = new GoogleGenAI({ apiKey });
     return await ai.models.generateContent({
       model,
       ...params
@@ -52,9 +85,7 @@ const callGenAI = async (model: string, params: any) => {
     return await executeRequest();
   } catch (error: any) {
     // Check for Permission Denied (403) or specific API Key messages
-    const isAuthError = error?.status === 403 || error?.message?.includes('API key') || error?.message?.includes('PERMISSION_DENIED');
-
-    if (isAuthError && typeof window !== 'undefined' && (window as any).aistudio) {
+    if (isAuthError(error) && typeof window !== 'undefined' && (window as any).aistudio) {
       console.log("Auth error detected. Attempting to prompt for new key via AI Studio...");
       try {
         await (window as any).aistudio.openSelectKey();
@@ -113,6 +144,9 @@ export const generateClarificationQuestions = async (topic: string): Promise<Que
     return questions.slice(0, 3);
   } catch (error) {
     console.error("Error generating questions:", error);
+    // If auth error, let it bubble up so UI can show it
+    if (isAuthError(error)) throw error;
+
     return [
       { id: '1', text: 'What is the minimum Technology Readiness Level (TRL) required?', category: 'Technical' },
       { id: '2', text: 'Are there any specific business models you are avoiding?', category: 'Strategic' },
@@ -186,7 +220,8 @@ export const findStartups = async (query: string): Promise<StartupCandidate[]> =
 
   } catch (searchError: any) {
     // If it's an Auth error, we re-throw immediately so the UI knows the key is bad
-    if (searchError?.status === 403 || searchError?.message?.includes('API key') || searchError?.message?.includes('PERMISSION_DENIED')) {
+    // DO NOT fallback if the key is invalid
+    if (isAuthError(searchError)) {
         throw searchError;
     }
 
@@ -328,8 +363,8 @@ export const evaluateStartup = async (
     return processResponse(result);
 
   } catch (error: any) {
-    // If Auth error, re-throw
-    if (error?.status === 403 || error?.message?.includes('API key') || error?.message?.includes('PERMISSION_DENIED')) {
+    // If Auth error, re-throw immediately
+    if (isAuthError(error)) {
         throw error;
     }
 
