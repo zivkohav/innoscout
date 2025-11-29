@@ -146,9 +146,9 @@ const App: React.FC = () => {
             setSearchInput('');
             clearFile();
             setSearchStatus('idle');
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            alert("File evaluation failed. Please check the file format (PDF, Text, Image) or try again.");
+            alert(`Evaluation Failed: ${error.message || "Unknown error"}`);
             setSearchStatus('idle');
         }
     } else {
@@ -163,8 +163,9 @@ const App: React.FC = () => {
                 alert("No startups found. Please try a different query.");
                 setSearchStatus('idle');
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
+            alert(`Search Failed: ${error.message || "Please check your connection or API key."}`);
             setSearchStatus('idle');
         }
     }
@@ -186,8 +187,9 @@ const App: React.FC = () => {
       setSearchInput('');
       setSearchStatus('idle');
       setCandidates([]);
-    } catch (error) {
-      alert("Evaluation failed. Please check your API key or try again.");
+    } catch (error: any) {
+      console.error(error);
+      alert(`Evaluation Failed: ${error.message || "Please check your API key."}`);
       setSearchStatus('selecting'); // Go back to selection
     }
   };

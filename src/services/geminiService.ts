@@ -21,15 +21,7 @@ const cleanJson = (text: string) => {
   let end = -1;
 
   // Determine if we are looking for an object or an array based on which comes first
-  if (firstOpenBrace !== -1 && firstOpenBracket !== -1) {
-      if (firstOpenBrace < firstOpenBracket) {
-          start = firstOpenBrace;
-          end = lastCloseBrace;
-      } else {
-          start = firstOpenBracket;
-          end = lastCloseBracket;
-      }
-  } else if (firstOpenBrace !== -1) {
+  if (firstOpenBrace !== -1 && (firstOpenBracket === -1 || firstOpenBrace < firstOpenBracket)) {
       start = firstOpenBrace;
       end = lastCloseBrace;
   } else if (firstOpenBracket !== -1) {
@@ -37,11 +29,44 @@ const cleanJson = (text: string) => {
       end = lastCloseBracket;
   }
 
-  if (start !== -1 && end !== -1 && end > start) {
+  if (start !== -1 && end !== -1 && end >= start) {
       cleaned = cleaned.substring(start, end + 1);
   }
   
   return cleaned;
+};
+
+// Wrapper to handle API calls with dynamic key injection and retry logic for 403s
+const callGenAI = async (model: string, params: any) => {
+  const executeRequest = async () => {
+    // Always create a new instance to pick up the latest process.env.API_KEY
+    // This is critical for race conditions where the key is injected after load
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    return await ai.models.generateContent({
+      model,
+      ...params
+    });
+  };
+
+  try {
+    return await executeRequest();
+  } catch (error: any) {
+    // Check for Permission Denied (403) or specific API Key messages
+    const isAuthError = error?.status === 403 || error?.message?.includes('API key') || error?.message?.includes('PERMISSION_DENIED');
+
+    if (isAuthError && typeof window !== 'undefined' && (window as any).aistudio) {
+      console.log("Auth error detected. Attempting to prompt for new key via AI Studio...");
+      try {
+        await (window as any).aistudio.openSelectKey();
+        // Retry the request once after key selection
+        return await executeRequest();
+      } catch (retryError) {
+        console.error("Retry failed:", retryError);
+        throw error; // Throw the original error if retry fails
+      }
+    }
+    throw error;
+  }
 };
 
 export const generateClarificationQuestions = async (topic: string): Promise<Question[]> => {
@@ -75,8 +100,7 @@ export const generateClarificationQuestions = async (topic: string): Promise<Que
   };
 
   try {
-    const result = await ai.models.generateContent({
-      model,
+    const result = await callGenAI(model, {
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -114,82 +138,78 @@ export const findStartups = async (query: string): Promise<StartupCandidate[]> =
     Retrieve up to 5 distinct, real candidates.
   `;
 
-  // Fallback Schema
-  const candidateSchema: Schema = {
-    type: Type.ARRAY,
-    items: {
-      type: Type.OBJECT,
-      properties: {
-        name: { type: Type.STRING },
-        url: { type: Type.STRING },
-        description: { type: Type.STRING }
-      },
-      required: ["name", "description"]
-    }
-  };
-
   // Helper to parse response
   const parseCandidates = (candidates: any) => {
-      // Handle case where model returns { candidates: [...] }
-      if (!Array.isArray(candidates) && typeof candidates === 'object') {
-          const key = Object.keys(candidates).find(k => Array.isArray(candidates[k]));
-          if (key) {
-               candidates = candidates[key];
+      let list: any[] = [];
+
+      if (Array.isArray(candidates)) {
+          list = candidates;
+      } else if (typeof candidates === 'object' && candidates !== null) {
+          // Look for common keys if wrapped in an object
+          if (Array.isArray(candidates.companies)) list = candidates.companies;
+          else if (Array.isArray(candidates.candidates)) list = candidates.candidates;
+          else if (Array.isArray(candidates.results)) list = candidates.results;
+          else {
+              // Try to find any array value
+              const arrayVal = Object.values(candidates).find(v => Array.isArray(v));
+              if (arrayVal) list = arrayVal as any[];
           }
       }
 
-      if (!Array.isArray(candidates)) return [];
-
-      return candidates.map((c: any, idx: number) => ({
+      return list.map((c: any, idx: number) => ({
         id: `candidate-${idx}`,
-        name: c.name,
-        url: c.url,
-        description: c.description
+        name: c.name || "Unknown Name",
+        url: c.url || "",
+        description: c.description || "No description available."
       }));
   };
 
   // --- ATTEMPT 1: Search Enabled ---
   try {
-    const result = await ai.models.generateContent({
-      model,
-      contents: basePrompt + "\nOutput strictly as a JSON array of objects with keys: name, url, description.",
+    const result = await callGenAI(model, {
+      contents: basePrompt + "\nOutput strictly as a JSON object with a 'companies' key containing an array of objects (keys: name, url, description).",
       config: {
         tools: [{ googleSearch: {} }],
-        // Moving system instruction to prompt text often improves stability in some environments
-        systemInstruction: "You are a search assistant. Return ONLY raw JSON arrays. No markdown." 
+        // Simplified system instruction to avoid conflict
+        systemInstruction: "You are a helpful assistant. Output valid JSON." 
       }
     });
 
-    const jsonText = cleanJson(result.text || "[]");
-    if (!jsonText || jsonText === "[]") throw new Error("Empty search result");
+    const jsonText = cleanJson(result.text || "{}");
+    if (!jsonText || jsonText === "{}") throw new Error("Empty search result");
     
-    const candidates = JSON.parse(jsonText);
-    const parsed = parseCandidates(candidates);
-    if (parsed.length === 0) throw new Error("No candidates parsed");
+    const parsed = JSON.parse(jsonText);
+    const candidates = parseCandidates(parsed);
     
-    return parsed;
+    if (candidates.length === 0) throw new Error("No candidates parsed from search");
+    return candidates;
 
-  } catch (searchError) {
+  } catch (searchError: any) {
+    // If it's an Auth error, we re-throw immediately so the UI knows the key is bad
+    if (searchError?.status === 403 || searchError?.message?.includes('API key') || searchError?.message?.includes('PERMISSION_DENIED')) {
+        throw searchError;
+    }
+
     console.warn("Search tool failed or returned no results. Falling back to internal knowledge.", searchError);
     
-    // --- ATTEMPT 2: Fallback (Internal Knowledge + JSON Schema) ---
+    // --- ATTEMPT 2: Fallback (Internal Knowledge - No Strict Schema) ---
     try {
-        const fallbackResult = await ai.models.generateContent({
-            model,
-            contents: basePrompt + "\nNote: Search unavailable. Generate candidates based on your internal knowledge base.",
+        const fallbackResult = await callGenAI(model, {
+            contents: basePrompt + "\n\nImportant: Search is unavailable. Use your internal knowledge. Output strictly as a JSON object with a 'companies' key containing an array of objects (keys: name, url, description).",
             config: {
                 responseMimeType: "application/json",
-                responseSchema: candidateSchema,
+                // schema removed for robustness
                 temperature: 0.7
             }
         });
 
-        const candidates = JSON.parse(fallbackResult.text || "[]");
-        return parseCandidates(candidates);
+        const jsonText = cleanJson(fallbackResult.text || "{}");
+        const parsed = JSON.parse(jsonText);
+        return parseCandidates(parsed);
 
     } catch (fallbackError) {
         console.error("Critical error finding startups:", fallbackError);
-        return [];
+        throw fallbackError; // Re-throw so UI can handle alert
     }
   }
 }
@@ -247,6 +267,7 @@ export const evaluateStartup = async (
     6. Identify RED FLAGS based on the User Constraints (e.g., TRL too low, wrong sector).
     7. If there is a critical red flag (No-Go), set isNoGo to true.
 
+    Output STRICT JSON.
     Structure:
     {
       "startupName": "${candidate.name}",
@@ -260,35 +281,7 @@ export const evaluateStartup = async (
     }
   `;
 
-  // Define Schema for Fallback
-  const evaluationSchema: Schema = {
-    type: Type.OBJECT,
-    properties: {
-        startupName: { type: Type.STRING },
-        oneLineSummary: { type: Type.STRING },
-        desirability: { 
-            type: Type.OBJECT, 
-            properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } },
-            required: ['score', 'reasoning']
-        },
-        viability: { 
-            type: Type.OBJECT, 
-            properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } },
-            required: ['score', 'reasoning']
-        },
-        feasibility: { 
-            type: Type.OBJECT, 
-            properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } },
-            required: ['score', 'reasoning']
-        },
-        overallScore: { type: Type.NUMBER },
-        redFlags: { type: Type.ARRAY, items: { type: Type.STRING } },
-        isNoGo: { type: Type.BOOLEAN }
-    },
-    required: ['startupName', 'desirability', 'viability', 'feasibility', 'overallScore', 'redFlags', 'isNoGo']
-  };
-
-  const processResponse = (result: any, fromSearch: boolean) => {
+  const processResponse = (result: any) => {
       const jsonText = cleanJson(result.text || "{}");
       const evaluation = JSON.parse(jsonText) as EvaluationResult;
 
@@ -312,7 +305,7 @@ export const evaluateStartup = async (
 
   // --- ATTEMPT 1: With Google Search (unless file upload is primary and sufficient) ---
   try {
-    const parts: any[] = [{ text: promptText + "\nOutput strictly valid JSON." }];
+    const parts: any[] = [{ text: promptText }];
     
     if (fileData) {
       parts.push({
@@ -323,23 +316,28 @@ export const evaluateStartup = async (
       });
     }
 
-    const result = await ai.models.generateContent({
-      model,
+    const result = await callGenAI(model, {
       contents: { parts },
       config: {
         tools: [{ googleSearch: {} }],
-        systemInstruction: "You are an analytical engine. Output ONLY strictly valid JSON. No markdown."
+        // Loose system instruction
+        systemInstruction: "You are an analytical engine. Output JSON only."
       }
     });
 
-    return processResponse(result, true);
+    return processResponse(result);
 
-  } catch (error) {
+  } catch (error: any) {
+    // If Auth error, re-throw
+    if (error?.status === 403 || error?.message?.includes('API key') || error?.message?.includes('PERMISSION_DENIED')) {
+        throw error;
+    }
+
     console.warn("Evaluation with search failed. Falling back to internal knowledge.", error);
 
-    // --- ATTEMPT 2: Fallback (Internal Knowledge + JSON Schema) ---
+    // --- ATTEMPT 2: Fallback (Internal Knowledge - No Strict Schema) ---
     try {
-        const parts: any[] = [{ text: promptText }];
+        const parts: any[] = [{ text: promptText + "\n\nProvide the evaluation based on internal knowledge." }];
         if (fileData) {
             parts.push({
               inlineData: {
@@ -349,20 +347,19 @@ export const evaluateStartup = async (
             });
         }
 
-        const result = await ai.models.generateContent({
-            model,
+        const result = await callGenAI(model, {
             contents: { parts },
             config: {
                 responseMimeType: "application/json",
-                responseSchema: evaluationSchema,
+                // schema removed for robustness
                 temperature: 0.5
             }
         });
 
-        return processResponse(result, false);
-    } catch (fatalError) {
+        return processResponse(result);
+    } catch (fatalError: any) {
         console.error("Evaluation failed completely", fatalError);
-        throw new Error("Failed to evaluate startup.");
+        throw new Error(fatalError.message || "Failed to evaluate startup.");
     }
   }
 };
@@ -384,8 +381,7 @@ export const formalizeRefinementRule = async (rawInput: string): Promise<string>
   `;
 
   try {
-    const result = await ai.models.generateContent({
-      model,
+    const result = await callGenAI(model, {
       contents: prompt,
     });
     return result.text?.trim() || rawInput;
