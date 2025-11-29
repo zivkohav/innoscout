@@ -1,12 +1,12 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Answer, EvaluationResult, AppState, StartupCandidate } from './types';
 import ClarificationWizard from './components/ClarificationWizard';
 import EvaluationCard from './components/EvaluationCard';
 import StartupSelector from './components/StartupSelector';
 import CriteriaPanel from './components/CriteriaPanel';
 import { evaluateStartup, findStartups } from './services/geminiService';
-import { Search, Sparkles, Database, Plus, Zap, Loader2, Paperclip, X, FileText } from 'lucide-react';
+import { Search, Sparkles, Database, Plus, Zap, Loader2, Paperclip, X, FileText, RotateCcw } from 'lucide-react';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
@@ -25,6 +25,59 @@ const App: React.FC = () => {
   // File Upload State
   const [selectedFile, setSelectedFile] = useState<{name: string, data: string, mimeType: string} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // --- PERSISTENCE LOGIC ---
+  
+  // Load brief on mount
+  useEffect(() => {
+    const savedBrief = localStorage.getItem('innoscout_brief');
+    if (savedBrief) {
+      try {
+        const parsed = JSON.parse(savedBrief);
+        // Only restore if we have the critical data
+        if (parsed.innovationTopic && parsed.clarificationAnswers?.length > 0) {
+            setState(prev => ({
+                ...prev,
+                phase: 'evaluation',
+                innovationTopic: parsed.innovationTopic,
+                clarificationAnswers: parsed.clarificationAnswers,
+                refinementRules: parsed.refinementRules || []
+            }));
+        }
+      } catch (e) {
+        console.error("Failed to load saved brief", e);
+      }
+    }
+  }, []);
+
+  // Save brief on change
+  useEffect(() => {
+    if (state.phase === 'evaluation') {
+        const brief = {
+            innovationTopic: state.innovationTopic,
+            clarificationAnswers: state.clarificationAnswers,
+            refinementRules: state.refinementRules
+        };
+        localStorage.setItem('innoscout_brief', JSON.stringify(brief));
+    }
+  }, [state.innovationTopic, state.clarificationAnswers, state.refinementRules, state.phase]);
+
+
+  const handleResetMandate = () => {
+      if (window.confirm("Start a new Innovation Mandate? This will clear your current criteria brief and saved rules.")) {
+          localStorage.removeItem('innoscout_brief');
+          setState({
+            phase: 'onboarding',
+            innovationTopic: '',
+            clarificationQuestions: [],
+            clarificationAnswers: [],
+            evaluations: [],
+            refinementRules: []
+          });
+      }
+  };
+
+  // --- END PERSISTENCE LOGIC ---
 
   const startClarification = () => {
     if (!state.innovationTopic.trim()) return;
@@ -161,18 +214,25 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          {state.phase === 'evaluation' && (
-             <div className="hidden md:flex items-center gap-4 text-sm text-slate-400">
-               <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-full border border-slate-700">
-                 <Search className="w-3 h-3" />
-                 <span className="max-w-[150px] truncate">{state.innovationTopic}</span>
-               </div>
-               <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-full border border-slate-700">
-                 <Database className="w-3 h-3" />
-                 <span>{state.refinementRules.length} Refinements</span>
-               </div>
-             </div>
-          )}
+          <div className="flex items-center gap-4">
+            {state.phase === 'evaluation' && (
+                <div className="hidden md:flex items-center gap-4 text-sm text-slate-400">
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-full border border-slate-700">
+                        <Search className="w-3 h-3" />
+                        <span className="max-w-[150px] truncate">{state.innovationTopic}</span>
+                    </div>
+                    
+                    <button 
+                        onClick={handleResetMandate}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-rose-900/30 hover:text-rose-400 rounded-full border border-slate-700 hover:border-rose-800 transition-colors"
+                        title="Start New Mandate"
+                    >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>New Mandate</span>
+                    </button>
+                </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -223,7 +283,7 @@ const App: React.FC = () => {
             
             <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4 text-left w-full">
               <FeatureBox title="Contextual" desc="Adapts criteria to your specific strategic goals." />
-              <FeatureBox title="Critical" desc="Identifies 'No-Go' red flags immediately." />
+              <FeatureBox title="Persistent" desc="Maintains your mandate brief across sessions." />
               <FeatureBox title="Adaptive" desc="Learns from your feedback to improve scoring." />
             </div>
           </div>

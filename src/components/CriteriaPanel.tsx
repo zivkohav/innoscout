@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Answer } from '../types';
 import { ChevronDown, ChevronUp, Target, Sliders, ShieldAlert, ListFilter } from 'lucide-react';
@@ -21,13 +22,13 @@ const CriteriaPanel: React.FC<Props> = ({ topic, answers, refinementRules }) => 
             <div className="p-1 bg-slate-700 group-hover:bg-slate-600 rounded">
                 <ListFilter className="w-4 h-4" />
             </div>
-            <span>Criteria Reference & Mandate Profile</span>
+            <span>Innovation Mandate Brief</span>
             <span className="bg-violet-900/50 text-violet-300 border border-violet-800 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase">
                 {answers.length + refinementRules.length} Active Rules
             </span>
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-500 group-hover:text-slate-300">
-            {isOpen ? 'Collapse Review' : 'View Criteria'}
+            {isOpen ? 'Collapse Brief' : 'View Brief'}
             {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </div>
       </button>
