@@ -136,8 +136,20 @@ export const findStartups = async (query: string): Promise<StartupCandidate[]> =
         return [];
     }
 
-    const candidates = JSON.parse(jsonText);
+    let candidates = JSON.parse(jsonText);
     
+    // Handle case where model returns { candidates: [...] }
+    if (!Array.isArray(candidates) && typeof candidates === 'object') {
+        const key = Object.keys(candidates).find(k => Array.isArray(candidates[k]));
+        if (key) {
+             candidates = candidates[key];
+        }
+    }
+
+    if (!Array.isArray(candidates)) {
+        return [];
+    }
+
     // Add IDs
     return candidates.map((c: any, idx: number) => ({
       id: `candidate-${idx}`,
@@ -148,6 +160,7 @@ export const findStartups = async (query: string): Promise<StartupCandidate[]> =
 
   } catch (error) {
     console.error("Error finding startups:", error);
+    // Return empty to handle UI gracefully
     return [];
   }
 }
