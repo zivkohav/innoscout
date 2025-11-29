@@ -8,18 +8,37 @@ const ai = new GoogleGenAI({ apiKey });
 // Helper to sanitize JSON strings if the model returns markdown code blocks
 const cleanJson = (text: string) => {
   if (!text) return "";
-  // Remove markdown code blocks
-  let cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
-  // Sometimes the model adds plain text before/after, try to find the first { and last }
-  const firstOpen = cleaned.indexOf('{');
-  const lastClose = cleaned.lastIndexOf('}');
-  const firstOpenArr = cleaned.indexOf('[');
-  const lastCloseArr = cleaned.lastIndexOf(']');
+  // Remove markdown code blocks (case insensitive)
+  let cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
   
-  if (firstOpen !== -1 && lastClose !== -1 && (firstOpen < firstOpenArr || firstOpenArr === -1)) {
-    cleaned = cleaned.substring(firstOpen, lastClose + 1);
-  } else if (firstOpenArr !== -1 && lastCloseArr !== -1) {
-    cleaned = cleaned.substring(firstOpenArr, lastCloseArr + 1);
+  // Find the start and end of the JSON structure
+  const firstOpenBrace = cleaned.indexOf('{');
+  const firstOpenBracket = cleaned.indexOf('[');
+  const lastCloseBrace = cleaned.lastIndexOf('}');
+  const lastCloseBracket = cleaned.lastIndexOf(']');
+  
+  let start = -1;
+  let end = -1;
+
+  // Determine if we are looking for an object or an array based on which comes first
+  if (firstOpenBrace !== -1 && firstOpenBracket !== -1) {
+      if (firstOpenBrace < firstOpenBracket) {
+          start = firstOpenBrace;
+          end = lastCloseBrace;
+      } else {
+          start = firstOpenBracket;
+          end = lastCloseBracket;
+      }
+  } else if (firstOpenBrace !== -1) {
+      start = firstOpenBrace;
+      end = lastCloseBrace;
+  } else if (firstOpenBracket !== -1) {
+      start = firstOpenBracket;
+      end = lastCloseBracket;
+  }
+
+  if (start !== -1 && end !== -1 && end > start) {
+      cleaned = cleaned.substring(start, end + 1);
   }
   
   return cleaned;
@@ -81,16 +100,20 @@ export const generateClarificationQuestions = async (topic: string): Promise<Que
 export const findStartups = async (query: string): Promise<StartupCandidate[]> => {
   const model = "gemini-2.5-flash";
   const prompt = `
-    Search for startups or technology companies that match this description: "${query}".
-    
-    Identify up to 4 distinct, real companies.
-    For each company, provide:
-    1. Name
-    2. Website URL (if found in search results)
-    3. A brief 1-sentence description of what they do.
+    User Query: "${query}"
 
-    Output the result strictly as a JSON array of objects with keys: "name", "url", "description".
-    Do not add any markdown formatting outside the JSON.
+    Task: Search for startups or technology companies that match this name or description.
+    
+    Instructions:
+    1. **Disambiguate**: If the query is a specific name (e.g., "Neo"), look for distinct companies with that name or similar variations (e.g., "Neo Cyber", "Neo Materials").
+    2. **Digital Footprint**: For each company, prioritize finding their **Official Website**. If not found, find their **LinkedIn Company Page**.
+    3. **Description**: Provide a brief 1-sentence description of their core technology.
+
+    Retrieve up to 5 distinct, real candidates.
+
+    Output strictly as a JSON array of objects with keys: "name", "url", "description".
+    Do not add any markdown formatting, code blocks, or explanations outside the JSON.
+    Ensure the JSON is valid.
   `;
 
   try {
@@ -98,11 +121,21 @@ export const findStartups = async (query: string): Promise<StartupCandidate[]> =
       model,
       contents: prompt,
       config: {
-        tools: [{ googleSearch: {} }] // Enable search to find real companies
+        tools: [{ googleSearch: {} }], // Enable search to find real companies
+        systemInstruction: "You are a search assistant. You return ONLY raw JSON arrays. No markdown, no preambles."
       }
     });
 
-    const jsonText = cleanJson(result.text || "[]");
+    const rawText = result.text || "[]";
+    const jsonText = cleanJson(rawText);
+    
+    // Safety check for empty response
+    if (!jsonText || jsonText === "[]") {
+        console.warn("Empty JSON response from findStartups");
+        if (rawText.length > 20) console.log("Raw text was:", rawText);
+        return [];
+    }
+
     const candidates = JSON.parse(jsonText);
     
     // Add IDs
@@ -115,7 +148,6 @@ export const findStartups = async (query: string): Promise<StartupCandidate[]> =
 
   } catch (error) {
     console.error("Error finding startups:", error);
-    // Return empty to handle UI gracefully
     return [];
   }
 }
@@ -185,6 +217,8 @@ export const evaluateStartup = async (
       "redFlags": ["flag1", ...],
       "isNoGo": boolean
     }
+    
+    Return ONLY the JSON object.
   `;
 
   try {
@@ -204,6 +238,7 @@ export const evaluateStartup = async (
       contents: { parts },
       config: {
         tools: [{ googleSearch: {} }],
+        systemInstruction: "You are an analytical engine. Output ONLY strictly valid JSON. No markdown."
       }
     });
 
