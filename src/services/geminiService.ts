@@ -51,7 +51,7 @@ const isAuthError = (error: any) => {
   const msg = (error?.message || JSON.stringify(error)).toLowerCase();
   return error?.status === 403 || 
          msg.includes('api key') || 
-         msg.includes('permission_denied') ||
+         msg.includes('permission_denied') || 
          msg.includes('leaked') ||
          msg.includes('requested entity was not found');
 };
@@ -59,7 +59,9 @@ const isAuthError = (error: any) => {
 // Wrapper to execute GenAI calls with retry logic for Auth errors
 const executeGenAI = async <T>(operation: (ai: GoogleGenAI) => Promise<T>): Promise<T> => {
   const performRequest = async () => {
+    // Always fetch the key fresh to account for updates
     const apiKey = getApiKey();
+    // Guideline: Create a new instance right before making an API call
     const ai = new GoogleGenAI({ apiKey });
     return await operation(ai);
   };
@@ -73,7 +75,7 @@ const executeGenAI = async <T>(operation: (ai: GoogleGenAI) => Promise<T>): Prom
         console.log("Auth error detected. Prompting for key selection...");
         try {
           await (window as any).aistudio.openSelectKey();
-          // Retry the request - this assumes the environment variable is patched by the studio
+          // Retry the request - the environment variable should be updated by the host
           return await performRequest();
         } catch (retryError) {
           console.error("Key selection/retry failed:", retryError);
@@ -132,7 +134,7 @@ export const generateClarificationQuestions = async (topic: string): Promise<Que
     return questions.slice(0, 3);
   } catch (error) {
     console.error("Error generating questions:", error);
-    if (isAuthError(error)) throw error; // Don't fallback on auth error
+    if (isAuthError(error)) throw error; // Allow auth errors to bubble up
 
     return [
       { id: '1', text: 'What is the minimum Technology Readiness Level (TRL) required?', category: 'Technical' },
@@ -197,7 +199,7 @@ export const findStartups = async (query: string): Promise<StartupCandidate[]> =
     return parseCandidates(JSON.parse(jsonText));
 
   } catch (searchError: any) {
-    if (isAuthError(searchError)) throw searchError;
+    if (isAuthError(searchError)) throw searchError; // Critical: Bubble auth errors so executeGenAI can retry or app can alert
 
     console.warn("Search tool failed. Falling back to internal knowledge.", searchError);
     
