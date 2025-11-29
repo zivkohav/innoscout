@@ -1,7 +1,9 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { Question, EvaluationResult, Answer, StartupCandidate } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
+// VITE FIX: Use import.meta.env instead of process.env
+const apiKey = import.meta.env.VITE_API_KEY || "";
+const ai = new GoogleGenAI({ apiKey });
 
 // Helper to sanitize JSON strings if the model returns markdown code blocks
 const cleanJson = (text: string) => {
