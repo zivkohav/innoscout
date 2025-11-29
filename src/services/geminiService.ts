@@ -41,7 +41,7 @@ const callGenAI = async (model: string, params: any) => {
   const executeRequest = async () => {
     // Always create a new instance to pick up the latest process.env.API_KEY
     // This is critical for race conditions where the key is injected after load
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.API_KEY });
     return await ai.models.generateContent({
       model,
       ...params
