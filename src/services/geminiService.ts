@@ -99,7 +99,9 @@ export const generateClarificationQuestions = async (topic: string): Promise<Que
 
 export const findStartups = async (query: string): Promise<StartupCandidate[]> => {
   const model = "gemini-2.5-flash";
-  const prompt = `
+  
+  // Base prompt used for both strategies
+  const basePrompt = `
     User Query: "${query}"
 
     Task: Search for startups or technology companies that match this name or description.
@@ -110,58 +112,85 @@ export const findStartups = async (query: string): Promise<StartupCandidate[]> =
     3. **Description**: Provide a brief 1-sentence description of their core technology.
 
     Retrieve up to 5 distinct, real candidates.
-
-    Output strictly as a JSON array of objects with keys: "name", "url", "description".
-    Do not add any markdown formatting, code blocks, or explanations outside the JSON.
-    Ensure the JSON is valid.
   `;
 
+  // Fallback Schema
+  const candidateSchema: Schema = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        name: { type: Type.STRING },
+        url: { type: Type.STRING },
+        description: { type: Type.STRING }
+      },
+      required: ["name", "description"]
+    }
+  };
+
+  // Helper to parse response
+  const parseCandidates = (candidates: any) => {
+      // Handle case where model returns { candidates: [...] }
+      if (!Array.isArray(candidates) && typeof candidates === 'object') {
+          const key = Object.keys(candidates).find(k => Array.isArray(candidates[k]));
+          if (key) {
+               candidates = candidates[key];
+          }
+      }
+
+      if (!Array.isArray(candidates)) return [];
+
+      return candidates.map((c: any, idx: number) => ({
+        id: `candidate-${idx}`,
+        name: c.name,
+        url: c.url,
+        description: c.description
+      }));
+  };
+
+  // --- ATTEMPT 1: Search Enabled ---
   try {
     const result = await ai.models.generateContent({
       model,
-      contents: prompt,
+      contents: basePrompt + "\nOutput strictly as a JSON array of objects with keys: name, url, description.",
       config: {
-        tools: [{ googleSearch: {} }], // Enable search to find real companies
-        systemInstruction: "You are a search assistant. You return ONLY raw JSON arrays. No markdown, no preambles."
+        tools: [{ googleSearch: {} }],
+        // Moving system instruction to prompt text often improves stability in some environments
+        systemInstruction: "You are a search assistant. Return ONLY raw JSON arrays. No markdown." 
       }
     });
 
-    const rawText = result.text || "[]";
-    const jsonText = cleanJson(rawText);
+    const jsonText = cleanJson(result.text || "[]");
+    if (!jsonText || jsonText === "[]") throw new Error("Empty search result");
     
-    // Safety check for empty response
-    if (!jsonText || jsonText === "[]") {
-        console.warn("Empty JSON response from findStartups");
-        if (rawText.length > 20) console.log("Raw text was:", rawText);
+    const candidates = JSON.parse(jsonText);
+    const parsed = parseCandidates(candidates);
+    if (parsed.length === 0) throw new Error("No candidates parsed");
+    
+    return parsed;
+
+  } catch (searchError) {
+    console.warn("Search tool failed or returned no results. Falling back to internal knowledge.", searchError);
+    
+    // --- ATTEMPT 2: Fallback (Internal Knowledge + JSON Schema) ---
+    try {
+        const fallbackResult = await ai.models.generateContent({
+            model,
+            contents: basePrompt + "\nNote: Search unavailable. Generate candidates based on your internal knowledge base.",
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: candidateSchema,
+                temperature: 0.7
+            }
+        });
+
+        const candidates = JSON.parse(fallbackResult.text || "[]");
+        return parseCandidates(candidates);
+
+    } catch (fallbackError) {
+        console.error("Critical error finding startups:", fallbackError);
         return [];
     }
-
-    let candidates = JSON.parse(jsonText);
-    
-    // Handle case where model returns { candidates: [...] }
-    if (!Array.isArray(candidates) && typeof candidates === 'object') {
-        const key = Object.keys(candidates).find(k => Array.isArray(candidates[k]));
-        if (key) {
-             candidates = candidates[key];
-        }
-    }
-
-    if (!Array.isArray(candidates)) {
-        return [];
-    }
-
-    // Add IDs
-    return candidates.map((c: any, idx: number) => ({
-      id: `candidate-${idx}`,
-      name: c.name,
-      url: c.url,
-      description: c.description
-    }));
-
-  } catch (error) {
-    console.error("Error finding startups:", error);
-    // Return empty to handle UI gracefully
-    return [];
   }
 }
 
@@ -184,13 +213,13 @@ export const evaluateStartup = async (
   if (hasFile) {
     instructions = `
     1. Analyze the PROVIDED DOCUMENT content to understand ${candidate.name}'s technology, model, and market.
-    2. Supplement with Google Search ONLY if the document is missing critical external context (e.g. competitors, recent news).
+    2. Supplement with external knowledge ONLY if the document is missing critical context.
     3. The document is the primary source of truth for Feasibility/Viability.
     `;
   } else {
     instructions = `
-    1. Use Google Search to find current information about ${candidate.name} (products, news, team, traction).
-    2. Analyze the startup based on the search results.
+    1. Research ${candidate.name} (products, news, team, traction) using available tools or internal knowledge.
+    2. Analyze the startup based on the findings.
     `;
   }
 
@@ -218,7 +247,6 @@ export const evaluateStartup = async (
     6. Identify RED FLAGS based on the User Constraints (e.g., TRL too low, wrong sector).
     7. If there is a critical red flag (No-Go), set isNoGo to true.
 
-    Output format: strictly valid JSON.
     Structure:
     {
       "startupName": "${candidate.name}",
@@ -230,12 +258,61 @@ export const evaluateStartup = async (
       "redFlags": ["flag1", ...],
       "isNoGo": boolean
     }
-    
-    Return ONLY the JSON object.
   `;
 
+  // Define Schema for Fallback
+  const evaluationSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        startupName: { type: Type.STRING },
+        oneLineSummary: { type: Type.STRING },
+        desirability: { 
+            type: Type.OBJECT, 
+            properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } },
+            required: ['score', 'reasoning']
+        },
+        viability: { 
+            type: Type.OBJECT, 
+            properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } },
+            required: ['score', 'reasoning']
+        },
+        feasibility: { 
+            type: Type.OBJECT, 
+            properties: { score: { type: Type.NUMBER }, reasoning: { type: Type.STRING } },
+            required: ['score', 'reasoning']
+        },
+        overallScore: { type: Type.NUMBER },
+        redFlags: { type: Type.ARRAY, items: { type: Type.STRING } },
+        isNoGo: { type: Type.BOOLEAN }
+    },
+    required: ['startupName', 'desirability', 'viability', 'feasibility', 'overallScore', 'redFlags', 'isNoGo']
+  };
+
+  const processResponse = (result: any, fromSearch: boolean) => {
+      const jsonText = cleanJson(result.text || "{}");
+      const evaluation = JSON.parse(jsonText) as EvaluationResult;
+
+      // Extract grounding sources if available
+      const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      const sources: string[] = [];
+      chunks.forEach((chunk: any) => {
+        if (chunk.web?.uri) {
+          sources.push(chunk.web.uri);
+        }
+      });
+      
+      if (hasFile) {
+          sources.unshift("Uploaded Document");
+      }
+      
+      // Deduplicate sources
+      evaluation.sources = Array.from(new Set(sources));
+      return evaluation;
+  };
+
+  // --- ATTEMPT 1: With Google Search (unless file upload is primary and sufficient) ---
   try {
-    const parts: any[] = [{ text: promptText }];
+    const parts: any[] = [{ text: promptText + "\nOutput strictly valid JSON." }];
     
     if (fileData) {
       parts.push({
@@ -255,29 +332,38 @@ export const evaluateStartup = async (
       }
     });
 
-    const jsonText = cleanJson(result.text || "{}");
-    const evaluation = JSON.parse(jsonText) as EvaluationResult;
-    
-    // Extract grounding sources
-    const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const sources: string[] = [];
-    chunks.forEach((chunk: any) => {
-      if (chunk.web?.uri) {
-        sources.push(chunk.web.uri);
-      }
-    });
-    
-    if (hasFile) {
-        sources.unshift("Uploaded Document");
-    }
-    
-    // Deduplicate sources
-    evaluation.sources = Array.from(new Set(sources));
+    return processResponse(result, true);
 
-    return evaluation;
   } catch (error) {
-    console.error("Evaluation failed", error);
-    throw new Error("Failed to evaluate startup.");
+    console.warn("Evaluation with search failed. Falling back to internal knowledge.", error);
+
+    // --- ATTEMPT 2: Fallback (Internal Knowledge + JSON Schema) ---
+    try {
+        const parts: any[] = [{ text: promptText }];
+        if (fileData) {
+            parts.push({
+              inlineData: {
+                mimeType: fileData.mimeType,
+                data: fileData.data
+              }
+            });
+        }
+
+        const result = await ai.models.generateContent({
+            model,
+            contents: { parts },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: evaluationSchema,
+                temperature: 0.5
+            }
+        });
+
+        return processResponse(result, false);
+    } catch (fatalError) {
+        console.error("Evaluation failed completely", fatalError);
+        throw new Error("Failed to evaluate startup.");
+    }
   }
 };
 
