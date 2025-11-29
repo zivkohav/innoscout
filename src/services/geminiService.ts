@@ -32,103 +32,56 @@ const cleanJson = (text: string) => {
   return cleaned;
 };
 
-// Helper to extract a human-readable message from raw API errors
-const getFriendlyErrorMessage = (error: any): string => {
-  const rawMsg = error?.message || error?.toString() || "Unknown error";
-  
-  // 1. Try to parse JSON error bodies (common with GoogleGenAI)
-  try {
-    // Look for a JSON pattern in the message
-    const jsonMatch = rawMsg.match(/\{.*"error":.*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.error?.message) {
-        return parsed.error.message;
-      }
-    }
-  } catch (e) {
-    // Ignore parsing errors
+// Robust API Key Retrieval
+const getApiKey = (): string => {
+  // Primary: Standard process.env (AI Studio / Node)
+  if (typeof process !== "undefined" && process.env?.API_KEY) {
+    return process.env.API_KEY;
   }
-
-  // 2. Fallback to raw message if parsing failed
-  return rawMsg;
+  // Fallback: Vite / Local Dev
+  // @ts-ignore
+  if (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_KEY) {
+    // @ts-ignore
+    return import.meta.env.VITE_API_KEY;
+  }
+  return "";
 };
 
-// Helper to identify auth/key errors case-insensitively
 const isAuthError = (error: any) => {
   const msg = (error?.message || JSON.stringify(error)).toLowerCase();
-  return error?.status === 403 || msg.includes('api key') || msg.includes('permission_denied');
+  return error?.status === 403 || 
+         msg.includes('api key') || 
+         msg.includes('permission_denied') ||
+         msg.includes('leaked') ||
+         msg.includes('requested entity was not found');
 };
 
-// Helper to safely retrieve API Key across different environments (AI Studio vs Vercel/Vite)
-const getApiKey = (): string | undefined => {
-  // 1. Try process.env (AI Studio, Node.js)
-  try {
-    if (typeof process !== "undefined" && process.env?.API_KEY) {
-      return process.env.API_KEY;
-    }
-  } catch (e) {
-    // process is likely undefined
-  }
-
-  // 2. Try import.meta.env (Vite / Vercel)
-  // Note: In Vercel, you must set the environment variable as VITE_API_KEY for it to be exposed.
-  try {
-    // @ts-ignore: Vite specific types might not be inferred depending on config
-    if (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_KEY) {
-      // @ts-ignore
-      return import.meta.env.VITE_API_KEY;
-    }
-  } catch (e) {
-    // import.meta is likely undefined
-  }
-  
-  return undefined;
-};
-
-// Wrapper to handle API calls with dynamic key injection and retry logic for 403s
-const callGenAI = async (model: string, params: any) => {
-  const executeRequest = async () => {
+// Wrapper to execute GenAI calls with retry logic for Auth errors
+const executeGenAI = async <T>(operation: (ai: GoogleGenAI) => Promise<T>): Promise<T> => {
+  const performRequest = async () => {
     const apiKey = getApiKey();
-
-    if (!apiKey) {
-        throw new Error("API Key is missing. If deploying to Vercel/Netlify, please ensure the 'VITE_API_KEY' environment variable is set in your project settings.");
-    }
-
-    // Always create a new instance to pick up the latest key
     const ai = new GoogleGenAI({ apiKey });
-    return await ai.models.generateContent({
-      model,
-      ...params
-    });
+    return await operation(ai);
   };
 
   try {
-    return await executeRequest();
+    return await performRequest();
   } catch (error: any) {
-    // Check for Permission Denied (403) or specific API Key messages
+    // If it's an auth error, try to prompt for a key refresh in AI Studio
     if (isAuthError(error)) {
-      const isStudio = typeof window !== 'undefined' && (window as any).aistudio;
-      
-      if (isStudio) {
-        console.log("Auth error detected in Studio. Attempting to prompt for new key...");
+      if (typeof window !== "undefined" && (window as any).aistudio?.openSelectKey) {
+        console.log("Auth error detected. Prompting for key selection...");
         try {
           await (window as any).aistudio.openSelectKey();
-          // Retry the request once after key selection
-          return await executeRequest();
+          // Retry the request - this assumes the environment variable is patched by the studio
+          return await performRequest();
         } catch (retryError) {
-          console.error("Retry failed:", retryError);
-          // Fall through to throw the friendly error
+          console.error("Key selection/retry failed:", retryError);
+          // Fall through to throw original error
         }
-      } else {
-        // We are in a deployed environment (e.g., Vercel)
-        const rawMessage = getFriendlyErrorMessage(error);
-        throw new Error(`API Authentication Error: ${rawMessage}. \n\nAction: Please update your 'VITE_API_KEY' environment variable in your deployment settings with a valid, non-leaked key.`);
       }
     }
-    
-    // For non-auth errors, clean up the message
-    throw new Error(getFriendlyErrorMessage(error));
+    throw error;
   }
 };
 
@@ -163,21 +116,23 @@ export const generateClarificationQuestions = async (topic: string): Promise<Que
   };
 
   try {
-    const result = await callGenAI(model, {
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-        temperature: 0.7
-      }
+    const result = await executeGenAI(async (ai) => {
+      return await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: responseSchema,
+          temperature: 0.7
+        }
+      });
     });
 
     const questions = JSON.parse(result.text || "[]") as Question[];
     return questions.slice(0, 3);
   } catch (error) {
     console.error("Error generating questions:", error);
-    // If auth error, let it bubble up so UI can show it
-    if (isAuthError(error)) throw error;
+    if (isAuthError(error)) throw error; // Don't fallback on auth error
 
     return [
       { id: '1', text: 'What is the minimum Technology Readiness Level (TRL) required?', category: 'Technical' },
@@ -190,7 +145,6 @@ export const generateClarificationQuestions = async (topic: string): Promise<Que
 export const findStartups = async (query: string): Promise<StartupCandidate[]> => {
   const model = "gemini-2.5-flash";
   
-  // Base prompt used for both strategies
   const basePrompt = `
     User Query: "${query}"
 
@@ -204,24 +158,19 @@ export const findStartups = async (query: string): Promise<StartupCandidate[]> =
     Retrieve up to 5 distinct, real candidates.
   `;
 
-  // Helper to parse response
   const parseCandidates = (candidates: any) => {
       let list: any[] = [];
-
       if (Array.isArray(candidates)) {
           list = candidates;
       } else if (typeof candidates === 'object' && candidates !== null) {
-          // Look for common keys if wrapped in an object
           if (Array.isArray(candidates.companies)) list = candidates.companies;
           else if (Array.isArray(candidates.candidates)) list = candidates.candidates;
           else if (Array.isArray(candidates.results)) list = candidates.results;
           else {
-              // Try to find any array value
               const arrayVal = Object.values(candidates).find(v => Array.isArray(v));
               if (arrayVal) list = arrayVal as any[];
           }
       }
-
       return list.map((c: any, idx: number) => ({
         id: `candidate-${idx}`,
         name: c.name || "Unknown Name",
@@ -230,53 +179,45 @@ export const findStartups = async (query: string): Promise<StartupCandidate[]> =
       }));
   };
 
-  // --- ATTEMPT 1: Search Enabled ---
   try {
-    const result = await callGenAI(model, {
-      contents: basePrompt + "\nOutput strictly as a JSON object with a 'companies' key containing an array of objects (keys: name, url, description).",
-      config: {
-        tools: [{ googleSearch: {} }],
-        // Simplified system instruction to avoid conflict
-        systemInstruction: "You are a helpful assistant. Output valid JSON." 
-      }
+    const result = await executeGenAI(async (ai) => {
+      return await ai.models.generateContent({
+        model,
+        contents: basePrompt + "\nOutput strictly as a JSON object with a 'companies' key containing an array of objects (keys: name, url, description).",
+        config: {
+          tools: [{ googleSearch: {} }],
+          systemInstruction: "You are a helpful assistant. Output valid JSON." 
+        }
+      });
     });
 
     const jsonText = cleanJson(result.text || "{}");
     if (!jsonText || jsonText === "{}") throw new Error("Empty search result");
     
-    const parsed = JSON.parse(jsonText);
-    const candidates = parseCandidates(parsed);
-    
-    if (candidates.length === 0) throw new Error("No candidates parsed from search");
-    return candidates;
+    return parseCandidates(JSON.parse(jsonText));
 
   } catch (searchError: any) {
-    // If it's an Auth error, we re-throw immediately so the UI knows the key is bad
-    // DO NOT fallback if the key is invalid
-    if (isAuthError(searchError)) {
-        throw searchError;
-    }
+    if (isAuthError(searchError)) throw searchError;
 
-    console.warn("Search tool failed or returned no results. Falling back to internal knowledge.", searchError);
+    console.warn("Search tool failed. Falling back to internal knowledge.", searchError);
     
-    // --- ATTEMPT 2: Fallback (Internal Knowledge - No Strict Schema) ---
     try {
-        const fallbackResult = await callGenAI(model, {
-            contents: basePrompt + "\n\nImportant: Search is unavailable. Use your internal knowledge. Output strictly as a JSON object with a 'companies' key containing an array of objects (keys: name, url, description).",
-            config: {
-                responseMimeType: "application/json",
-                // schema removed for robustness
-                temperature: 0.7
-            }
+        const fallbackResult = await executeGenAI(async (ai) => {
+            return await ai.models.generateContent({
+                model,
+                contents: basePrompt + "\n\nImportant: Search is unavailable. Use your internal knowledge. Output strictly as a JSON object with a 'companies' key containing an array of objects (keys: name, url, description).",
+                config: {
+                    responseMimeType: "application/json",
+                    temperature: 0.7
+                }
+            });
         });
 
         const jsonText = cleanJson(fallbackResult.text || "{}");
-        const parsed = JSON.parse(jsonText);
-        return parseCandidates(parsed);
-
+        return parseCandidates(JSON.parse(jsonText));
     } catch (fallbackError) {
         console.error("Critical error finding startups:", fallbackError);
-        throw fallbackError; // Re-throw so UI can handle alert
+        throw fallbackError;
     }
   }
 }
@@ -352,81 +293,62 @@ export const evaluateStartup = async (
       const jsonText = cleanJson(result.text || "{}");
       const evaluation = JSON.parse(jsonText) as EvaluationResult;
 
-      // Extract grounding sources if available
       const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
       const sources: string[] = [];
       chunks.forEach((chunk: any) => {
-        if (chunk.web?.uri) {
-          sources.push(chunk.web.uri);
-        }
+        if (chunk.web?.uri) sources.push(chunk.web.uri);
       });
       
-      if (hasFile) {
-          sources.unshift("Uploaded Document");
-      }
-      
-      // Deduplicate sources
+      if (hasFile) sources.unshift("Uploaded Document");
       evaluation.sources = Array.from(new Set(sources));
       return evaluation;
   };
 
-  // --- ATTEMPT 1: With Google Search (unless file upload is primary and sufficient) ---
   try {
     const parts: any[] = [{ text: promptText }];
-    
     if (fileData) {
-      parts.push({
-        inlineData: {
-          mimeType: fileData.mimeType,
-          data: fileData.data
-        }
-      });
+      parts.push({ inlineData: { mimeType: fileData.mimeType, data: fileData.data } });
     }
 
-    const result = await callGenAI(model, {
-      contents: { parts },
-      config: {
-        tools: [{ googleSearch: {} }],
-        // Loose system instruction
-        systemInstruction: "You are an analytical engine. Output JSON only."
-      }
+    const result = await executeGenAI(async (ai) => {
+      return await ai.models.generateContent({
+        model,
+        contents: { parts },
+        config: {
+          tools: [{ googleSearch: {} }],
+          systemInstruction: "You are an analytical engine. Output JSON only."
+        }
+      });
     });
 
     return processResponse(result);
 
   } catch (error: any) {
-    // If Auth error, re-throw immediately
-    if (isAuthError(error)) {
-        throw error;
-    }
+    if (isAuthError(error)) throw error;
 
     console.warn("Evaluation with search failed. Falling back to internal knowledge.", error);
 
-    // --- ATTEMPT 2: Fallback (Internal Knowledge - No Strict Schema) ---
     try {
         const parts: any[] = [{ text: promptText + "\n\nProvide the evaluation based on internal knowledge." }];
         if (fileData) {
-            parts.push({
-              inlineData: {
-                mimeType: fileData.mimeType,
-                data: fileData.data
-              }
-            });
+            parts.push({ inlineData: { mimeType: fileData.mimeType, data: fileData.data } });
         }
 
-        const result = await callGenAI(model, {
-            contents: { parts },
-            config: {
-                responseMimeType: "application/json",
-                // schema removed for robustness
-                temperature: 0.5
-            }
+        const result = await executeGenAI(async (ai) => {
+            return await ai.models.generateContent({
+                model,
+                contents: { parts },
+                config: {
+                    responseMimeType: "application/json",
+                    temperature: 0.5
+                }
+            });
         });
 
         return processResponse(result);
     } catch (fatalError: any) {
         console.error("Evaluation failed completely", fatalError);
-        throw fatalError; // Re-throw sanitized error
+        throw fatalError;
     }
   }
 };
@@ -434,26 +356,18 @@ export const evaluateStartup = async (
 export const formalizeRefinementRule = async (rawInput: string): Promise<string> => {
   const model = "gemini-2.5-flash";
   const prompt = `
-    Transform the following user feedback into a specific, actionable evaluation rule for analyzing startups.
-    The rule should be phrased as a directive for an AI evaluator. d
-
+    Transform the following user feedback into a specific, actionable evaluation rule.
     User Input: "${rawInput}"
-
-    Examples:
-    Input: "We don't want crypto." -> Rule: "Strictly exclude cryptocurrency and blockchain-based business models."
-    Input: "They need to be at least series A." -> Rule: "Prioritize startups that have reached at least Series A funding stage."
-    Input: "The technology is too early." -> Rule: "Ensure Technology Readiness Level (TRL) is sufficiently high (demonstrated prototype or later)."
-
     Output only the rule string.
   `;
 
   try {
-    const result = await callGenAI(model, {
-      contents: prompt,
+    const result = await executeGenAI(async (ai) => {
+      return await ai.models.generateContent({ model, contents: prompt });
     });
     return result.text?.trim() || rawInput;
   } catch (error) {
     console.error("Formalization failed:", error);
-    return rawInput; // Fallback to raw input
+    return rawInput;
   }
 };
