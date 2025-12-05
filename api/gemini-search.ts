@@ -2,7 +2,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI } from "@google/genai";
 
-// Type for what we return to the frontend
 type StartupCandidate = {
   id: string;
   name: string;
@@ -10,65 +9,73 @@ type StartupCandidate = {
   description: string;
 };
 
-// Simple cleaner for JSON that might be wrapped in ```json ... ```
+// Clean JSON if Gemini wraps it in ```json ... ```
 const cleanJson = (text: string | undefined | null): string => {
   if (!text) return "";
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
   return cleaned;
 };
 
-// Get API key from environment (server-only)
 const getApiKey = (): string => {
   if (!process.env.GEMINI_API_KEY) {
     throw new Error(
-      "GEMINI_API_KEY is not set. Define it in .env.local (for local dev) and in Vercel project settings."
+      "GEMINI_API_KEY is not set. Define it in .env.local and in Vercel project settings."
     );
   }
   return process.env.GEMINI_API_KEY;
 };
 
-// Call Gemini to find startups
 const findStartupsWithGemini = async (query: string): Promise<StartupCandidate[]> => {
   const apiKey = getApiKey();
   const ai = new GoogleGenAI({ apiKey });
-  const model = "gemini-2.5-flash";
+
+  // Use a stable, widely-available model
+  const model = "gemini-1.5-flash";
 
   const prompt = `
 User Query: "${query}"
 
-Task: Search for startups or technology companies that match this name or description.
+Task: Suggest up to 5 real startups or technology companies that best match this name or description.
 
 Instructions:
-1. If the query is a specific name (e.g., "Neo"), look for distinct companies with that name or similar variations.
-2. For each company, prioritize finding their Official Website. If not found, use their LinkedIn Company Page.
-3. Provide a brief 1-sentence description of their core technology.
+- For each company, include:
+  - "name": company or startup name
+  - "url": official website URL (or main LinkedIn page if website unavailable)
+  - "description": a 1-sentence summary of their core technology or product.
+- Only include real companies (no fictional examples).
 
-Output strictly as JSON:
+Output strictly as JSON in this shape:
 {
   "startups": [
-    { "name": "...", "url": "...", "description": "..." },
-    ...
+    { "name": "...", "url": "...", "description": "..." }
   ]
 }
 `;
 
   const result = await ai.models.generateContent({
     model,
-    contents: prompt,
-    config: {
-      tools: [{ googleSearch: {} }],
-      responseMimeType: "application/json",
-      temperature: 0.3,
-    },
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
 
-  const jsonText = cleanJson((result as any).text || "{}");
-  const parsed = JSON.parse(jsonText) as { startups?: any[] };
+  // Different SDK versions expose text differently; be defensive
+  const rawText =
+    (result as any).text ??
+    (result as any).candidates?.[0]?.content?.parts?.[0]?.text ??
+    "";
+
+  const jsonText = cleanJson(rawText || "{}");
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (e) {
+    console.error("Failed to parse JSON from Gemini:", jsonText);
+    throw new Error("Gemini returned invalid JSON");
+  }
 
   const list = Array.isArray(parsed.startups) ? parsed.startups : [];
 
-  // Normalize into StartupCandidate[]
-  return list.map((c, idx) => ({
+  return list.map((c: any, idx: number) => ({
     id: `gemini-${idx}`,
     name: c.name || "Unknown Name",
     url: c.url || "",
@@ -76,7 +83,6 @@ Output strictly as JSON:
   }));
 };
 
-// API handler
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
