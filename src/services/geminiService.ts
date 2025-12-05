@@ -73,7 +73,7 @@ const executeGenAI = async <T>(
     console.error("Gemini API call failed:", error);
     throw error;
   }
-
+}
 // ------------------ PUBLIC FUNCTIONS ------------------
 
 export const generateClarificationQuestions = async (
