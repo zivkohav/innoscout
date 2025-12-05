@@ -15,7 +15,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: "Missing 'query' in request body" });
     }
 
-    console.log("Calling findStartups with query:", query);
     const startups = await findStartups(query);
 
     return res.status(200).json({ startups });
