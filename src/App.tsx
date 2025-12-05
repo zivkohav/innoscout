@@ -4,7 +4,6 @@ import ClarificationWizard from './components/ClarificationWizard';
 import EvaluationCard from './components/EvaluationCard';
 import StartupSelector from './components/StartupSelector';
 import CriteriaPanel from './components/CriteriaPanel';
-import { evaluateStartup } from './services/geminiService'; // ⬅️ removed findStartups import
 import { Search, Sparkles, Database, Plus, Zap, Loader2, Paperclip, X, FileText, RotateCcw } from 'lucide-react';
 
 const App: React.FC = () => {

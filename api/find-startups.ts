@@ -1,6 +1,6 @@
 // api/find-startups.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { findStartups } from "../src/services/geminiService";
+import { findStartups } from "./lib/geminiService";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
