@@ -1,6 +1,33 @@
 // api/find-startups.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { findStartups } from "./lib/geminiService";
+
+// Inline dummy implementation to avoid module resolution issues.
+// Once everything works, we can move real Gemini logic back in.
+type StartupCandidate = {
+  id: string;
+  name: string;
+  url: string;
+  description: string;
+};
+
+const findStartups = async (query: string): Promise<StartupCandidate[]> => {
+  const trimmed = (query || "").trim() || "Unknown";
+
+  return [
+    {
+      id: "dummy-1",
+      name: `${trimmed} AI`,
+      url: "https://example.com/ai",
+      description: `Dummy startup 1 for query "${trimmed}".`,
+    },
+    {
+      id: "dummy-2",
+      name: `${trimmed} Labs`,
+      url: "https://example.com/labs",
+      description: `Dummy startup 2 for query "${trimmed}".`,
+    },
+  ];
+};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
