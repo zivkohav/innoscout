@@ -33,9 +33,9 @@ const findStartupsWithGemini = async (query: string): Promise<StartupCandidate[]
 });
 
   // Use a stable, widely-available model
-  const model = "gemini-1.5-flash";
+ const model = "gemini-2.0-flash";
 
-  const prompt = `
+const prompt = `
 User Query: "${query}"
 
 Task: Suggest up to 5 real startups or technology companies that best match this name or description.
@@ -55,35 +55,37 @@ Output strictly as JSON in this shape:
 }
 `;
 
-  const result = await ai.models.generateContent({
-    model,
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
+const result = await ai.models.generateContent({
+  model,
+  // simplest, doc-friendly shape: just a string
+  contents: prompt,
+});
 
-  // Different SDK versions expose text differently; be defensive
-  const rawText =
-    (result as any).text ??
-    (result as any).candidates?.[0]?.content?.parts?.[0]?.text ??
-    "";
+// Try to read text in a robust way
+const rawText =
+  (result as any).text ??
+  (result as any).candidates?.[0]?.content?.parts?.[0]?.text ??
+  "";
 
-  const jsonText = cleanJson(rawText || "{}");
+const jsonText = cleanJson(rawText || "{}");
 
-  let parsed: any;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch (e) {
-    console.error("Failed to parse JSON from Gemini:", jsonText);
-    throw new Error("Gemini returned invalid JSON");
-  }
+let parsed: any;
+try {
+  parsed = JSON.parse(jsonText);
+} catch (e) {
+  console.error("Failed to parse JSON from Gemini:", jsonText);
+  throw new Error("Gemini returned invalid JSON");
+}
 
-  const list = Array.isArray(parsed.startups) ? parsed.startups : [];
+const list = Array.isArray(parsed.startups) ? parsed.startups : [];
 
-  return list.map((c: any, idx: number) => ({
-    id: `gemini-${idx}`,
-    name: c.name || "Unknown Name",
-    url: c.url || "",
-    description: c.description || "No description available.",
-  }));
+return list.map((c: any, idx: number) => ({
+  id: `gemini-${idx}`,
+  name: c.name || "Unknown Name",
+  url: c.url || "",
+  description: c.description || "No description available.",
+}));
+
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
