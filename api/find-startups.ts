@@ -1,6 +1,5 @@
-// api/find-startups.ts   (file lives in the top-level "api" folder)
+// api/find-startups.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { findStartups } from "../src/services/geminiService";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
@@ -8,22 +7,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Minimal test: no Gemini, no imports, just echo the query
   try {
     const { query } = req.body as { query?: string };
 
-    if (!query || !query.trim()) {
-      return res.status(400).json({ error: "Missing 'query' in request body" });
-    }
-
-    // ✅ Call the server-side function directly
-    const startups = await findStartups(query);
-
-    // ✅ Send the result back to the browser
-    return res.status(200).json({ startups });
+    return res.status(200).json({
+      message: "API route is alive",
+      query: query ?? null,
+    });
   } catch (error: any) {
-    console.error("Error in /api/find-startups:", error);
+    console.error("Minimal handler error:", error);
     return res
       .status(500)
       .json({ error: error?.message || "Internal server error" });
   }
-}
