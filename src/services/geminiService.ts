@@ -1,3 +1,4 @@
+// src/services/geminiService.ts
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { Question, EvaluationResult, Answer, StartupCandidate } from "../types";
 
@@ -63,7 +64,7 @@ const executeGenAI = async <T>(
   operation: (ai: GoogleGenAI) => Promise<T>
 ): Promise<T> => {
   const apiKey = getApiKey();
-  console.log("GEMINI_API_KEY present:", !!apiKey);  // simple sanity log
+  console.log("GEMINI_API_KEY present:", !!apiKey);
 
   const ai = new GoogleGenAI({ apiKey });
 
@@ -73,7 +74,8 @@ const executeGenAI = async <T>(
     console.error("Gemini API call failed:", error);
     throw error;
   }
-}
+};
+
 // ------------------ PUBLIC FUNCTIONS ------------------
 
 export const generateClarificationQuestions = async (
@@ -160,9 +162,9 @@ export const findStartups = async (
     Task: Search for startups or technology companies that match this name or description.
     
     Instructions:
-    1. *Disambiguate*: If the query is a specific name (e.g., "Neo"), look for distinct companies with that name or similar variations (e.g., "Neo Cyber", "Neo Materials").
-    2. *Digital Footprint: For each company, prioritize finding their **Official Website. If not found, find their **LinkedIn Company Page*.
-    3. *Description*: Provide a brief 1-sentence description of their core technology.
+    1. **Disambiguate**: If the query is a specific name (e.g., "Neo"), look for distinct companies with that name or similar variations (e.g., "Neo Cyber", "Neo Materials").
+    2. **Digital Footprint**: For each company, prioritize finding their **Official Website**. If not found, find their **LinkedIn Company Page**.
+    3. **Description**: Provide a brief 1-sentence description of their core technology.
 
     Retrieve up to 5 distinct, real candidates.
   `;
@@ -251,6 +253,7 @@ export const evaluateStartup = async (
   const contextString = context
     .map((a) => `Q: ${a.questionText}\nA: ${a.answerText}`)
     .join("\n---\n");
+
   const refinementString =
     refinementHistory.length > 0
       ? `\n\nCRITICAL REFINEMENT RULES FROM USER FEEDBACK (Override standard criteria if conflicting):\n${refinementHistory
