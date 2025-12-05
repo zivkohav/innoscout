@@ -63,6 +63,8 @@ const executeGenAI = async <T>(
   operation: (ai: GoogleGenAI) => Promise<T>
 ): Promise<T> => {
   const apiKey = getApiKey();
+  console.log("GEMINI_API_KEY present:", !!apiKey);  // simple sanity log
+
   const ai = new GoogleGenAI({ apiKey });
 
   try {
@@ -71,7 +73,6 @@ const executeGenAI = async <T>(
     console.error("Gemini API call failed:", error);
     throw error;
   }
-};
 
 // ------------------ PUBLIC FUNCTIONS ------------------
 
