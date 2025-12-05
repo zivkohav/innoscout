@@ -30,7 +30,7 @@ const findStartupsWithGemini = async (query: string): Promise<StartupCandidate[]
   const ai = new GoogleGenAI({ apiKey });
 
   // Use a stable, widely-available model
-  const model = "gemini-1.5-flash";
+  const model = "gemini-1.5-flash-001";
 
   const prompt = `
 User Query: "${query}"
