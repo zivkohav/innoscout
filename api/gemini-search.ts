@@ -27,10 +27,13 @@ const getApiKey = (): string => {
 
 const findStartupsWithGemini = async (query: string): Promise<StartupCandidate[]> => {
   const apiKey = getApiKey();
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({
+  apiKey,
+  apiVersion: "v1", // force stable v1 instead of v1beta
+});
 
   // Use a stable, widely-available model
-  const model = "gemini-1.5-flash-001";
+  const model = "gemini-1.5-flash";
 
   const prompt = `
 User Query: "${query}"
