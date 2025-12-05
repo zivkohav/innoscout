@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { EvaluationResult } from '../types';
 import CriteriaChart from './CriteriaChart';
 import { AlertTriangle, ThumbsDown, Check, TrendingUp, Cpu, Heart, ExternalLink, Link2, Loader2, Sparkles, X, Save, Mail } from 'lucide-react';
-import { formalizeRefinementRule } from '../services/geminiService';
+import { formalizeRefinementRule } from "../services/refinementService";
 
 interface Props {
   evaluation: EvaluationResult;
