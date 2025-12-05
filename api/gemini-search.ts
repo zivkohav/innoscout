@@ -12,9 +12,21 @@ type StartupCandidate = {
 // Clean JSON if Gemini wraps it in ```json ... ```
 const cleanJson = (text: string | undefined | null): string => {
   if (!text) return "";
+
+  // Remove markdown code fences if present
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
-  return cleaned;
+
+  // Find the first opening brace and last closing brace
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+
+  return cleaned.trim();
 };
+
 
 const getApiKey = (): string => {
   if (!process.env.GEMINI_API_KEY) {
