@@ -113,96 +113,128 @@ const App: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleAction = async () => {
-    if (!searchInput.trim()) return;
+ const handleAction = async () => {
+  if (!searchInput.trim()) return;
 
-    // --- CASE 1: Evaluate from uploaded file directly ---
-    if (selectedFile) {
-      setSearchStatus('evaluating');
+  // CASE 1: Evaluate an uploaded file directly
+  if (selectedFile) {
+    setSearchStatus("evaluating");
 
-      const manualCandidate: StartupCandidate = {
-        id: 'manual-upload',
-        name: searchInput,
-        description: `Analysis based on uploaded document: ${selectedFile.name}`,
-        url: ''
-      };
+    const manualCandidate: StartupCandidate = {
+      id: "manual-upload",
+      name: searchInput,
+      description: `Analysis based on uploaded document: ${selectedFile.name}`,
+      url: "",
+    };
 
-      try {
-        const result = await evaluateStartup(
-          manualCandidate,
-          state.clarificationAnswers,
-          state.refinementRules,
-          { mimeType: selectedFile.mimeType, data: selectedFile.data }
-        );
-
-        setState(prev => ({
-          ...prev,
-          evaluations: [result, ...prev.evaluations]
-        }));
-
-        setSearchInput('');
-        clearFile();
-        setSearchStatus('idle');
-      } catch (error: any) {
-        console.error(error);
-        alert(`Evaluation Failed: ${error.message}`);
-        setSearchStatus('idle');
-      }
-    } else {
-      // --- CASE 2: Search for startup by name using API route ---
-      setSearchStatus('searching');
-
-      try {
-        const response = await fetch('/api/gemini-search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: searchInput })   // ⬅️ use searchInput
-        });
-
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
-          throw new Error(err.error || 'Request failed');
-        }
-
-        const data = await response.json();
-        const startups: StartupCandidate[] = data.startups || [];
-
-        if (startups.length > 0) {
-          setCandidates(startups);
-          setSearchStatus('selecting');
-        } else {
-          alert('No startups found. Please try a different query.');
-          setSearchStatus('idle');
-        }
-      } catch (error: any) {
-        console.error(error);
-        alert(`Search Failed: ${error.message}`);
-        setSearchStatus('idle');
-      }
-    }
-  };
-
-  const handleSelectStartup = async (candidate: StartupCandidate) => {
-    setSearchStatus('evaluating');
     try {
-      const result = await evaluateStartup(
-        candidate,
-        state.clarificationAnswers,
-        state.refinementRules
-      );
-      setState(prev => ({
+      const response = await fetch("/api/gemini-evaluate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidate: manualCandidate,
+          context: state.clarificationAnswers,
+          refinementHistory: state.refinementRules,
+          fileData: {
+            mimeType: selectedFile.mimeType,
+            data: selectedFile.data,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || "Request failed");
+      }
+
+      const result: EvaluationResult = await response.json();
+
+      setState((prev) => ({
         ...prev,
-        evaluations: [result, ...prev.evaluations]
+        evaluations: [result, ...prev.evaluations],
       }));
-      setSearchInput('');
-      setSearchStatus('idle');
-      setCandidates([]);
+
+      setSearchInput("");
+      clearFile();
+      setSearchStatus("idle");
     } catch (error: any) {
       console.error(error);
       alert(`Evaluation Failed: ${error.message}`);
-      setSearchStatus('selecting');
+      setSearchStatus("idle");
     }
-  };
+
+    return;
+  }
+
+  // CASE 2: Search for startups by name (no file)
+  setSearchStatus("searching");
+  try {
+    const response = await fetch("/api/gemini-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: searchInput }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || "Request failed");
+    }
+
+    const data = await response.json();
+    const startups: StartupCandidate[] = data.startups || [];
+
+    if (startups.length > 0) {
+      setCandidates(startups);
+      setSearchStatus("selecting");
+    } else {
+      alert("No startups found. Please try a different query.");
+      setSearchStatus("idle");
+    }
+  } catch (error: any) {
+    console.error(error);
+    alert(`Search Failed: ${error.message}`);
+    setSearchStatus("idle");
+  }
+};
+
+
+ const handleSelectStartup = async (candidate: StartupCandidate) => {
+  setSearchStatus("evaluating");
+
+  try {
+    const response = await fetch("/api/gemini-evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        candidate,
+        context: state.clarificationAnswers,
+        refinementHistory: state.refinementRules,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || "Request failed");
+    }
+
+    const result: EvaluationResult = await response.json();
+
+    setState((prev) => ({
+      ...prev,
+      evaluations: [result, ...prev.evaluations],
+    }));
+
+    // Reset search flow
+    setSearchInput("");
+    setSearchStatus("idle");
+    setCandidates([]);
+  } catch (error: any) {
+    console.error(error);
+    alert(`Evaluation Failed: ${error.message}`);
+    setSearchStatus("selecting"); // go back to candidate selection
+  }
+};
+
 
   const handleRefine = (feedback: string) => {
     setState(prev => ({
