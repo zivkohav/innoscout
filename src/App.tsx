@@ -153,7 +153,7 @@ const App: React.FC = () => {
       setSearchStatus('searching');
 
       try {
-        const response = await fetch('/api/find-startups', {
+        const response = await fetch('/api/gemini-search', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query: searchInput })   // ⬅️ use searchInput
