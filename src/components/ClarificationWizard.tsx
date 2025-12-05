@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Question, Answer } from '../types';
-import { generateClarificationQuestions } from '../services/geminiService';
+import { generateClarificationQuestions } from '../services/clarificationService';
 import { Loader2, ArrowRight, CheckCircle, Target } from 'lucide-react';
 
 interface Props {
