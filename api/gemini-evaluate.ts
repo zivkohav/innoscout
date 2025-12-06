@@ -147,14 +147,15 @@ Output STRICT JSON with this structure:
     });
   }
 
-  const result = await ai.models.generateContent({
-  model,
-  contents: { parts },
-  // v1 API: either omit extra config entirely or use generationConfig
-  generationConfig: {
-    temperature: 0.4,
-  },
-});
+// ...existing code...
+ const result = await (ai.models as any).generateContent({
+   model,
+   contents: { parts },
+   generationConfig: {
+     temperature: 0.4,
+   },
+ });
+ // ...existing code...
 
 
   const rawText =
