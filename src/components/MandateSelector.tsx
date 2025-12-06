@@ -26,13 +26,13 @@ const MandateSelector: React.FC<Props> = ({
         onClick={() => setIsOpen(!isOpen)}
         className="w-full md:w-auto flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 transition-colors"
       >
-        <div className="flex items-center gap-2 flex-1">
-          <div className="w-2 h-2 bg-violet-500 rounded-full"></div>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="w-2 h-2 bg-violet-500 rounded-full flex-shrink-0"></div>
           <span className="text-sm font-medium truncate">
             {activeMandate?.name || 'Select Mandate'}
           </span>
         </div>
-        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-4 h-4 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
@@ -45,7 +45,7 @@ const MandateSelector: React.FC<Props> = ({
               mandates.map(mandate => (
                 <div
                   key={mandate.id}
-                  className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg transition-colors ${
+                  className={`flex items-start justify-between gap-2 px-3 py-2 rounded-lg transition-colors ${
                     mandate.id === activeMandateId
                       ? 'bg-violet-900/30 border border-violet-500/30'
                       : 'hover:bg-slate-800'
@@ -56,17 +56,17 @@ const MandateSelector: React.FC<Props> = ({
                       onSelectMandate(mandate.id);
                       setIsOpen(false);
                     }}
-                    className="flex-1 text-left"
+                    className="flex-1 text-left min-w-0"
                   >
-                    <div className="text-sm font-medium text-white">{mandate.name}</div>
-                    <div className="text-xs text-slate-400 truncate">{mandate.innovationTopic}</div>
+                    <div className="text-sm font-medium text-white break-words">{mandate.name}</div>
+                    <div className="text-xs text-slate-400 break-words line-clamp-2">{mandate.innovationTopic}</div>
                   </button>
                   <button
                     onClick={() => {
                       onDeleteMandate(mandate.id);
                       setIsOpen(false);
                     }}
-                    className="p-1.5 rounded hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 transition-colors"
+                    className="p-1.5 rounded hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 transition-colors flex-shrink-0"
                     title="Delete mandate"
                   >
                     <Trash2 className="w-4 h-4" />
