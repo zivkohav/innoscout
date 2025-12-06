@@ -181,6 +181,16 @@ ADDITIONAL HELP FOR TRICKY NAMES:
   3) Try minor spelling variants (single-letter swaps or common typos).
 - Only include companies you are reasonably confident exist (visible website/profile).
 - Prefer official website URLs when available.
+
+ADDITIONAL DOMAIN STRATEGY (IMPORTANT):
+- If you cannot find a clear profile, explicitly TRY to construct plausible official website URLs using common TLDs and country variants and CHECK for them mentally. Examples to try (in order):
+  1) https://{name}.com
+  2) https://www.{name}.com
+  3) https://{name}.bio
+  4) https://{name}.io, https://{name}.ai, https://{name}.tech
+  5) Country or region variants: https://{name}.jp, https://www.{name}.jp/en, https://{name}.co.jp
+  6) Add common suffixes: https://{name}labs.com, https://{name}tech.com, etc.
+- If you find a website at one of these addresses, include that exact url in the output and prefer that candidate.
 `;
 
 // Render prompt for the query including optional structured metadata
@@ -225,7 +235,7 @@ const hasExact = list.some(
 if (!hasExact) {
   const retryPrompt =
     renderPrompt(query, context, meta) +
-    "\n\nRETRY: If you did not find an exact-name match, now explicitly try the domain and name-variant strategies listed above and return up to 5 best candidates.";
+    "\n\nRETRY: If you did not find an exact-name match, now EXPLICITLY try the domain and name-variant strategies listed above. Concretely, attempt the following URL patterns for the query (and small suffix variants): https://{q}.com, https://www.{q}.com, https://{q}.bio, https://{q}.io, https://{q}.ai, https://{q}.jp, https://www.{q}.jp/en, https://{q}.co.jp, and {q}labs.com. For each candidate you include, provide the strongest evidence (website URL or known profile) and the one-line description. Return up to 5 best candidates.".replace(/{q}/g, query);
 
   const retryJson = await callGemini(retryPrompt);
   try {
@@ -254,6 +264,64 @@ const startups = list.map((c: any, idx: number) => ({
   url: c.url || "",
   description: c.description || "No description available.",
 }));
+
+// If Gemini returned nothing, try a deterministic URL probe for exact-name variants
+if (startups.length === 0) {
+  const tlds = ['.com', '.bio', '.io', '.ai', '.tech', '.jp', '.co.jp'];
+  const tryUrls: string[] = [];
+  const base = query.trim();
+  tlds.forEach((t) => {
+    if (t === '.co.jp') {
+      tryUrls.push(`https://${base}.co.jp`);
+      tryUrls.push(`https://www.${base}.co.jp`);
+    } else {
+      tryUrls.push(`https://${base}${t}`);
+      tryUrls.push(`https://www.${base}${t}`);
+    }
+  });
+
+  // Also try lowercase and with /en
+  const expanded = tryUrls.flatMap((u) => [u, u + '/en']);
+
+  const checkUrl = async (url: string) => {
+    try {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 3000);
+      const resp = await fetch(url, { method: 'HEAD', signal: controller.signal } as any).catch(() => null);
+      clearTimeout(id);
+      if (resp && (resp.status === 200 || resp.status === 301 || resp.status === 302)) return true;
+    } catch (e) {
+      // ignore
+    }
+    return false;
+  };
+
+  for (const url of expanded) {
+    // try lowercase variant too
+    const variants = [url, url.replace(base, base.toLowerCase())];
+    for (const v of variants) {
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await checkUrl(v);
+      if (ok) {
+        const candidate = {
+          id: `probe-0`,
+          name: base,
+          url: v,
+          description: `Official website discovered by probing common domains for ${base}`,
+        };
+        return { startups: [candidate], help: {
+          alwaysVisible: true,
+          displayAsTooltip: true,
+          infoToggleLabel: 'Search Tips (ℹ️)',
+          examples: [],
+          proTips: ['We probed common domain patterns and found a likely official site.'],
+          whyThisWorked: `A live website was detected at ${v}`,
+          mandateEffect: context ? `Context "${context}" was used.` : undefined,
+        } };
+      }
+    }
+  }
+}
 
 // Construct simplified, user-friendly examples & tips (extracted/simplified from file header)
 const examples: HelpExample[] = [
