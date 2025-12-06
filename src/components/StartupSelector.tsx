@@ -74,67 +74,7 @@ const StartupSelector: React.FC<Props> = ({ candidates, onSelect, onCancel, help
         </button>
       </div>
 
-      {/* Help affordance: persistent info icon */}
-      <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-        <span style={{ marginRight: 8 }}>
-          <strong>Startups</strong>
-        </span>
-        {help?.alwaysVisible && (
-          <span
-            style={{ cursor: "pointer", marginLeft: 4 }}
-            title={help.infoToggleLabel}
-            onClick={() => setShowHelp((v) => !v)}
-          >
-            ℹ️
-          </span>
-        )}
-      </div>
-
-      {/* Help panel: examples, tips, mandate effect */}
-      {showHelp && help && (
-        <div style={{
-          border: "1px solid #eee",
-          background: "#fafcff",
-          padding: 12,
-          borderRadius: 6,
-          marginBottom: 12,
-          maxWidth: 400,
-        }}>
-          <div style={{ marginBottom: 8 }}>
-            <strong>How context improves results:</strong>
-            <ul>
-              {help.examples.map((ex, i) => (
-                <li key={i}><code>{ex.input}</code>: {ex.result}</li>
-              ))}
-            </ul>
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <strong>Pro tips:</strong>
-            <ul>
-              {help.proTips.map((tip, i) => (
-                <li key={i}>{tip}</li>
-              ))}
-            </ul>
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <strong>Mandate effect:</strong> {help.mandateEffect}
-          </div>
-          {help.whyThisWorked && (
-            <div style={{ fontStyle: "italic", color: "#555" }}>
-              {help.whyThisWorked}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Search input with hint */}
-      <div style={{ marginBottom: 12 }}>
-        <input
-          type="text"
-          placeholder="Add context (industry, location) for better results"
-          className="w-full p-3 rounded-lg border border-slate-700 bg-slate-900 text-white placeholder-slate-500 focus:ring-2 focus:ring-violet-500 focus:outline-none"
-        />
-      </div>
+      {/* Help affordance removed: structured form supplies context now */}
     </div>
   );
 };
