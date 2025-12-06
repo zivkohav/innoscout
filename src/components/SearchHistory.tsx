@@ -12,10 +12,16 @@ const format = (d: Date, _fmt: string) => d.toLocaleDateString(undefined, { mont
 
 interface Props {
   items: EvaluationResult[];
+  mandateId?: string | null;
   onSelect?: (evaluation: EvaluationResult) => void;
 }
 
-const groupByDate = (items: EvaluationResult[]) => {
+const groupByDate = (items: EvaluationResult[], mandateId?: string | null) => {
+  // Filter items to only those matching current mandate
+  const filtered = mandateId 
+    ? items.filter(it => it.mandateId === mandateId)
+    : items.filter(it => !it.mandateId); // Show untagged items if no mandate
+
   const groups: Record<string, EvaluationResult[]> = {
     Today: [],
     'Last Week': [],
@@ -23,7 +29,7 @@ const groupByDate = (items: EvaluationResult[]) => {
     Older: [],
   };
 
-  items.forEach((it) => {
+  filtered.forEach((it) => {
     const dt = it.evaluatedAt ? parseISO(it.evaluatedAt) : new Date();
     if (isToday(dt)) {
       groups.Today.push(it);
@@ -51,8 +57,8 @@ const SmallItem = ({ ev, onClick }: { ev: EvaluationResult; onClick?: (e: Evalua
   </button>
 );
 
-const SearchHistory: React.FC<Props> = ({ items, onSelect }) => {
-  const groups = groupByDate(items);
+const SearchHistory: React.FC<Props> = ({ items, mandateId, onSelect }) => {
+  const groups = groupByDate(items, mandateId);
 
   return (
     <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-3 max-h-[60vh] overflow-auto">

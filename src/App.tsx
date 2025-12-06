@@ -1,23 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Answer, EvaluationResult, AppState, StartupCandidate, HelpPayload } from './types';
+import { Answer, EvaluationResult, AppState, StartupCandidate, HelpPayload, Mandate } from './types';
 import ClarificationWizard from './components/ClarificationWizard';
 import EvaluationCard from './components/EvaluationCard';
 import StartupSelector from './components/StartupSelector';
 import SearchHistory from './components/SearchHistory';
 import CriteriaPanel from './components/CriteriaPanel';
+import MandateSelector from './components/MandateSelector';
+import ComparisonView from './components/ComparisonView';
 import { Search, Sparkles, Database, Plus, Zap, Loader2, Paperclip, X, FileText, RotateCcw } from 'lucide-react';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
     phase: 'onboarding',
-    innovationTopic: '',
+    mandates: [],
+    activeMandateId: null,
     clarificationQuestions: [],
-    clarificationAnswers: [],
-    evaluations: [],
-    refinementRules: []
+    evaluations: []
   });
 
   const [searchInput, setSearchInput] = useState('');
+  const [onboardingInput, setOnboardingInput] = useState('');
   const [searchStatus, setSearchStatus] = useState<'idle' | 'searching' | 'selecting' | 'evaluating'>('idle');
   const [candidates, setCandidates] = useState<StartupCandidate[]>([]);
   const [help, setHelp] = useState<HelpPayload | null>(null);
@@ -30,68 +32,165 @@ const App: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<{ name: string; data: string; mimeType: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- PERSISTENCE LOGIC ---
+  // Comparison View State
+  const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [comparisonStartupName, setComparisonStartupName] = useState<string>('');
 
-  // Load brief on mount
+  // --- PERSISTENCE & MANDATE MANAGEMENT LOGIC ---
+
+  // Get active mandate (if any)
+  const activeMandateId = state.activeMandateId;
+  const activeMandate = state.mandates.find(m => m.id === activeMandateId) || null;
+  const clarificationAnswers = activeMandate?.clarificationAnswers || [];
+  const refinementRules = activeMandate?.refinementRules || [];
+  const innovationTopic = activeMandate?.innovationTopic || '';
+
+  // Load mandates from backend on mount
   useEffect(() => {
-    const savedBrief = localStorage.getItem('innoscout_brief');
-    if (savedBrief) {
+    const loadMandates = async () => {
       try {
-        const parsed = JSON.parse(savedBrief);
-        if (parsed.innovationTopic && parsed.clarificationAnswers?.length > 0) {
+        const response = await fetch('/api/mandates');
+        const data = await response.json();
+        if (data.mandates && data.mandates.length > 0) {
           setState(prev => ({
             ...prev,
-            phase: 'evaluation',
-            innovationTopic: parsed.innovationTopic,
-            clarificationAnswers: parsed.clarificationAnswers,
-            refinementRules: parsed.refinementRules || []
+            mandates: data.mandates,
+            activeMandateId: data.activeMandateId || data.mandates[0].id,
+            phase: 'evaluation'
           }));
         }
-      } catch (e) {
-        console.error('Failed to load saved brief', e);
+      } catch (error) {
+        console.error('Failed to load mandates from backend:', error);
+        // Fall back to onboarding if backend unavailable
       }
-    }
+    };
+    loadMandates();
   }, []);
 
-  // Save brief on change
+  // Save active mandate refinement rules to backend
   useEffect(() => {
-    if (state.phase === 'evaluation') {
-      const brief = {
-        innovationTopic: state.innovationTopic,
-        clarificationAnswers: state.clarificationAnswers,
-        refinementRules: state.refinementRules
+    if (activeMandate && refinementRules.length > 0) {
+      const updateMandate = async () => {
+        try {
+          await fetch(`/api/mandates/${activeMandate.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refinementRules })
+          });
+        } catch (error) {
+          console.error('Failed to update mandate:', error);
+        }
       };
-      localStorage.setItem('innoscout_brief', JSON.stringify(brief));
+      updateMandate();
     }
-  }, [state.innovationTopic, state.clarificationAnswers, state.refinementRules, state.phase]);
+  }, [refinementRules, activeMandate?.id]);
 
-  const handleResetMandate = () => {
-    if (window.confirm('Start a new Innovation Mandate? This will clear your current criteria brief and saved rules.')) {
-      localStorage.removeItem('innoscout_brief');
-      setState({
-        phase: 'onboarding',
-        innovationTopic: '',
-        clarificationQuestions: [],
-        clarificationAnswers: [],
-        evaluations: [],
-        refinementRules: []
+  // --- END PERSISTENCE & MANDATE MANAGEMENT LOGIC ---
+
+  const createNewMandate = async (topic: string) => {
+    try {
+      // Generate a descriptive name for the mandate
+      let mandateName = `${topic.substring(0, 30)}${topic.length > 30 ? '...' : ''}`;
+      try {
+        const nameResponse = await fetch('/api/generate-mandate-name', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic })
+        });
+        if (nameResponse.ok) {
+          const nameData = await nameResponse.json();
+          mandateName = nameData.name || mandateName;
+        }
+      } catch (e) {
+        console.warn('Failed to generate mandate name, using fallback:', e);
+        // Fallback to truncated topic
+      }
+
+      const response = await fetch('/api/mandates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: mandateName,
+          innovationTopic: topic,
+          clarificationAnswers: [],
+          setAsActive: true
+        })
       });
+      const newMandate: Mandate = await response.json();
+      setState(prev => ({
+        ...prev,
+        mandates: [...prev.mandates, newMandate],
+        activeMandateId: newMandate.id,
+        phase: 'clarification'
+      }));
+      setOnboardingInput(''); // Clear onboarding input after mandate creation
+    } catch (error) {
+      console.error('Failed to create mandate:', error);
+      alert('Failed to create mandate. Please try again.');
     }
   };
 
-  // --- END PERSISTENCE LOGIC ---
-
-  const startClarification = () => {
-    if (!state.innovationTopic.trim()) return;
-    setState(prev => ({ ...prev, phase: 'clarification' }));
-  };
-
-  const handleClarificationComplete = (answers: Answer[]) => {
+  const switchMandate = (mandateId: string) => {
     setState(prev => ({
       ...prev,
-      clarificationAnswers: answers,
-      phase: 'evaluation'
+      activeMandateId: mandateId
     }));
+  };
+
+  const deleteMandate = async (mandateId: string) => {
+    if (!window.confirm('Delete this mandate? This cannot be undone.')) return;
+    try {
+      const response = await fetch(`/api/mandates/${mandateId}`, {
+        method: 'DELETE'
+      });
+      const data = await response.json();
+      setState(prev => ({
+        ...prev,
+        mandates: prev.mandates.filter(m => m.id !== mandateId),
+        activeMandateId: data.activeMandateId
+      }));
+    } catch (error) {
+      console.error('Failed to delete mandate:', error);
+      alert('Failed to delete mandate. Please try again.');
+    }
+  };
+
+  const handleOpenComparison = (startupName: string) => {
+    setComparisonStartupName(startupName);
+    setComparisonOpen(true);
+  };
+
+  const getComparisonEvaluations = () => {
+    return state.evaluations.filter(ev => ev.startupName === comparisonStartupName);
+  };
+
+  const startClarification = () => {
+    if (!innovationTopic.trim()) return;
+    // startClarification is called from onboarding, but with new mandate system,
+    // we create the mandate which automatically moves to clarification
+  };
+
+  const handleClarificationComplete = async (answers: Answer[]) => {
+    if (!activeMandate) return;
+    try {
+      // Update mandate with clarification answers
+      await fetch(`/api/mandates/${activeMandate.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clarificationAnswers: answers })
+      });
+      // Update local state to move to evaluation phase
+      setState(prev => ({
+        ...prev,
+        mandates: prev.mandates.map(m =>
+          m.id === activeMandate.id ? { ...m, clarificationAnswers: answers } : m
+        ),
+        phase: 'evaluation'
+      }));
+    } catch (error) {
+      console.error('Failed to save clarification answers:', error);
+      alert('Failed to save answers. Please try again.');
+    }
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -139,8 +238,8 @@ const App: React.FC = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           candidate: manualCandidate,
-          context: state.clarificationAnswers,
-          refinementHistory: state.refinementRules,
+          context: clarificationAnswers,
+          refinementHistory: refinementRules,
           fileData: {
             mimeType: selectedFile.mimeType,
             data: selectedFile.data,
@@ -155,8 +254,8 @@ const App: React.FC = () => {
 
       const result: EvaluationResult = await response.json();
 
-      // timestamp evaluation for history grouping
-      const stamped = { ...result, evaluatedAt: new Date().toISOString() };
+      // timestamp evaluation for history grouping and attach mandateId
+      const stamped = { ...result, evaluatedAt: new Date().toISOString(), mandateId: activeMandate?.id };
       setState((prev) => ({
         ...prev,
         evaluations: [stamped, ...prev.evaluations],
@@ -187,7 +286,7 @@ try {
       market,
       stage,
       region,
-      context: state.clarificationAnswers,
+      context: clarificationAnswers,
     }),
   });
   const data = await response.json();
@@ -219,8 +318,8 @@ try {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         candidate,
-        context: state.clarificationAnswers,
-        refinementHistory: state.refinementRules,
+        context: clarificationAnswers,
+        refinementHistory: refinementRules,
       }),
     });
 
@@ -231,7 +330,7 @@ try {
 
     const result: EvaluationResult = await response.json();
 
-    const stamped = { ...result, evaluatedAt: new Date().toISOString() };
+    const stamped = { ...result, evaluatedAt: new Date().toISOString(), mandateId: activeMandate?.id };
     setState((prev) => ({
       ...prev,
       evaluations: [stamped, ...prev.evaluations],
@@ -250,17 +349,22 @@ try {
 
 
   const handleRefine = (feedback: string) => {
-    setState(prev => ({
-      ...prev,
-      refinementRules: [...prev.refinementRules, feedback]
-    }));
+    if (activeMandate) {
+      const updatedRules = [...refinementRules, feedback];
+      setState(prev => ({
+        ...prev,
+        mandates: prev.mandates.map(m =>
+          m.id === activeMandate.id ? { ...m, refinementRules: updatedRules } : m
+        )
+      }));
+    }
   };
 
   return (
     <div className="min-h-screen pb-12">
       {/* Header */}
       <header className="bg-slate-900/80 backdrop-blur-md border-b border-slate-700 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center gap-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center shadow-lg shadow-violet-900/20">
               <Zap className="text-white w-6 h-6" />
@@ -271,34 +375,49 @@ try {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            {state.phase === 'evaluation' && (
-              <div className="hidden md:flex items-center gap-4 text-sm text-slate-400">
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-full border border-slate-700">
-                  <Search className="w-3 h-3" />
-                  <span className="max-w-[150px] truncate">{state.innovationTopic}</span>
-                </div>
+          <div className="flex-1 max-w-xs">
+            {state.phase === 'evaluation' && state.mandates.length > 0 && (
+              <MandateSelector
+                mandates={state.mandates}
+                activeMandateId={state.activeMandateId}
+                onSelectMandate={switchMandate}
+                onCreateNew={() => {
+                  setState(prev => ({ ...prev, phase: 'onboarding' }));
+                  setOnboardingInput('');
+                }}
+                onDeleteMandate={deleteMandate}
+              />
+            )}
+          </div>
 
-                <button
-                  onClick={handleResetMandate}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-rose-900/30 hover:text-rose-400 rounded-full border border-slate-700 hover:border-rose-800 transition-colors"
-                  title="Start New Mandate"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>New Mandate</span>
-                </button>
-              </div>
+          <div className="flex items-center gap-4">
+            {state.phase === 'evaluation' && activeMandate && (
+              <button
+                onClick={() => {
+                  setState(prev => ({
+                    ...prev,
+                    activeMandateId: null,
+                    phase: 'onboarding'
+                  }));
+                  setOnboardingInput('');
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-rose-900/30 hover:text-rose-400 rounded-full border border-slate-700 hover:border-rose-800 transition-colors text-sm"
+                title="Start New Mandate"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span className="hidden sm:inline">New</span>
+              </button>
             )}
           </div>
         </div>
       </header>
 
       {/* Criteria Panel (Evaluation Phase Only) */}
-      {state.phase === 'evaluation' && (
+      {state.phase === 'evaluation' && activeMandate && (
         <CriteriaPanel
-          topic={state.innovationTopic}
-          answers={state.clarificationAnswers}
-          refinementRules={state.refinementRules}
+          topic={innovationTopic}
+          answers={clarificationAnswers}
+          refinementRules={refinementRules}
         />
       )}
 
@@ -318,21 +437,21 @@ try {
 
             <div className="w-full relative">
               <textarea
-                value={state.innovationTopic}
-                onChange={(e) => setState(prev => ({ ...prev, innovationTopic: e.target.value }))}
+                value={onboardingInput}
+                onChange={(e) => setOnboardingInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  if (e.key === 'Enter' && !e.shiftKey && onboardingInput.trim()) {
                     e.preventDefault();
-                    startClarification();
+                    createNewMandate(onboardingInput);
                   }
                 }}
                 placeholder="e.g., 'Carbon capture technologies for industrial manufacturing. We are specifically looking for Series A startups with proven pilots in Europe...'"
                 className="w-full p-4 pl-6 pr-16 text-lg bg-slate-800 border-2 border-slate-700 rounded-2xl focus:border-violet-500 focus:ring-4 focus:ring-violet-500/20 text-white placeholder-slate-500 transition-all outline-none resize-none min-h-[140px]"
               />
               <button
-                onClick={startClarification}
+                onClick={() => createNewMandate(onboardingInput)}
                 className="absolute right-3 bottom-3 bg-violet-600 hover:bg-violet-500 text-white p-3 rounded-xl transition-colors shadow-lg"
-                disabled={!state.innovationTopic}
+                disabled={!onboardingInput.trim()}
               >
                 <ArrowRightIcon />
               </button>
@@ -347,9 +466,9 @@ try {
         )}
 
         {/* PHASE 2: Clarification */}
-        {state.phase === 'clarification' && (
+        {state.phase === 'clarification' && activeMandate && (
           <ClarificationWizard
-            topic={state.innovationTopic}
+            topic={activeMandate.innovationTopic}
             onComplete={handleClarificationComplete}
           />
         )}
@@ -514,11 +633,13 @@ try {
                     <EvaluationCard
                       evaluation={state.evaluations[0]}
                       onRefine={handleRefine}
+                      onCompare={() => handleOpenComparison(state.evaluations[0].startupName)}
                     />
                   </div>
                   <div className="lg:col-span-1">
                     <SearchHistory
                       items={state.evaluations.slice(1)}
+                      mandateId={activeMandateId}
                       onSelect={(ev) => {
                         // promote selected history item to the top
                         setState((prev) => {
@@ -534,6 +655,16 @@ try {
           </div>
         )}
       </main>
+
+      {/* Comparison View Modal */}
+      {comparisonOpen && (
+        <ComparisonView
+          startupName={comparisonStartupName}
+          evaluations={getComparisonEvaluations()}
+          mandates={state.mandates}
+          onClose={() => setComparisonOpen(false)}
+        />
+      )}
     </div>
   );
 };

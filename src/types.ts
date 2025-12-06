@@ -14,6 +14,7 @@ export interface EvaluationResult {
   isNoGo: boolean;
   sources?: string[]; // URLs from grounding
   evaluatedAt?: string; // ISO timestamp when evaluation was performed (frontend-added)
+  mandateId?: string; // Link evaluation to a specific mandate
 }
 
 export interface Question {
@@ -38,13 +39,25 @@ export interface StartupCandidate {
   location?: string;
 }
 
+export interface Mandate {
+  id: string; // Unique ID (UUID or timestamp-based)
+  name: string; // User-provided or AI-suggested name
+  innovationTopic: string;
+  clarificationAnswers: Answer[];
+  refinementRules: string[];
+  market?: string;
+  stage?: string;
+  region?: string;
+  createdAt: string; // ISO timestamp
+  updatedAt: string; // ISO timestamp
+}
+
 export interface AppState {
   phase: 'onboarding' | 'clarification' | 'evaluation';
-  innovationTopic: string;
-  clarificationQuestions: Question[];
-  clarificationAnswers: Answer[];
-  evaluations: EvaluationResult[];
-  refinementRules: string[]; // User feedback loop
+  mandates: Mandate[]; // All saved mandates
+  activeMandateId: string | null; // Currently active mandate
+  clarificationQuestions: Question[]; // Populated during clarification
+  evaluations: EvaluationResult[]; // All evaluations across all mandates
 }
 
 export interface HelpExample {
