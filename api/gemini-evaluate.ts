@@ -26,6 +26,7 @@ type EvaluationResult = {
   redFlags: string[];
   isNoGo: boolean;
   sources?: string[];
+  filters?: { market?: string; stage?: string; region?: string };
 };
 
 type EvaluateRequestBody = {
@@ -33,6 +34,9 @@ type EvaluateRequestBody = {
   context: Answer[];
   refinementHistory: string[];
   fileData?: { mimeType: string; data: string };
+  market?: string;
+  stage?: string;
+  region?: string;
 };
 
 // ---- Helpers ----
@@ -69,7 +73,8 @@ const evaluateWithGemini = async (
   candidate: StartupCandidate,
   context: Answer[],
   refinementHistory: string[],
-  fileData?: { mimeType: string; data: string }
+  fileData?: { mimeType: string; data: string },
+  meta?: { market?: string; stage?: string; region?: string }
 ): Promise<EvaluationResult> => {
   const apiKey = getApiKey();
   const ai = new GoogleGenAI({
@@ -78,6 +83,7 @@ const evaluateWithGemini = async (
   });
 
   const model = "gemini-2.0-flash";
+  
 
   const contextString = context
     .map((a) => `Q: ${a.questionText}\nA: ${a.answerText}`)
@@ -91,6 +97,11 @@ const evaluateWithGemini = async (
       : "";
 
   const hasFile = !!fileData;
+
+  const metaParts: string[] = [];
+  if (meta?.market) metaParts.push(`Market: ${meta.market}`);
+  if (meta?.stage) metaParts.push(`Stage: ${meta.stage}`);
+  if (meta?.region) metaParts.push(`Region: ${meta.region}`);
 
   const instructions = hasFile
     ? `
@@ -109,6 +120,8 @@ Task: Research and Evaluate the startup "${candidate.name}" (URL: ${
 
 Context Description: ${candidate.description || "No extra description provided."}
 
+${metaParts.length ? `Filters: ${metaParts.join(' | ')}` : ''}
+
 Definitions:
 - Desirability: Does a market exist? Is the problem urgent? Do customers want this solution?
 - Viability: Is the business model sound? Does it align with corporate strategy? Is it profitable/sustainable?
@@ -118,9 +131,6 @@ User Constraints (The "Lens"):
 ${contextString}
 
 ${refinementString}
-
-Instructions:
-${instructions}
 
 4. Analyze the startup against the Context and Definitions.
 5. Assign a score (1-5) for each criteria (Desirability, Viability, Feasibility).
@@ -177,6 +187,14 @@ Output STRICT JSON with this structure:
   if (fileData) sources.unshift("Uploaded Document");
 
   evaluation.sources = Array.from(new Set(sources));
+  // Attach filters used for this evaluation so frontend can display them
+  if (meta) {
+    evaluation.filters = {
+      market: meta.market,
+      stage: meta.stage,
+      region: meta.region,
+    };
+  }
 
   return evaluation;
 };
@@ -200,14 +218,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const context = body.context || [];
     const refinementHistory = body.refinementHistory || [];
     const fileData = body.fileData;
+    const { market, stage, region } = body;
 
-    console.log("[/api/gemini-evaluate] Candidate:", candidate.name);
+    console.log("[/api/gemini-evaluate] Candidate:", candidate.name, { market, stage, region });
 
     const evaluation = await evaluateWithGemini(
       candidate,
       context,
       refinementHistory,
-      fileData
+      fileData,
+      { market, stage, region }
     );
 
     return res.status(200).json(evaluation);

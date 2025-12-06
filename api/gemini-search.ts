@@ -72,7 +72,11 @@ const getApiKey = (): string => {
   return process.env.GEMINI_API_KEY;
 };
 
-const findStartupsWithGemini = async (query: string, context?: string): Promise<{ startups: StartupCandidate[]; help: HelpPayload }> => {
+const findStartupsWithGemini = async (
+  query: string,
+  context?: string,
+  meta?: { market?: string; stage?: string; region?: string }
+): Promise<{ startups: StartupCandidate[]; help: HelpPayload }> => {
   const apiKey = getApiKey();
   const ai = new GoogleGenAI({
   apiKey,
@@ -179,9 +183,14 @@ ADDITIONAL HELP FOR TRICKY NAMES:
 - Prefer official website URLs when available.
 `;
 
-// Render prompt for the query
-const renderPrompt = (q: string, c?: string) => {
-  const contextPrompt = c ? `Context/Hint: "${c}"` : '';
+// Render prompt for the query including optional structured metadata
+const renderPrompt = (q: string, c?: string, m?: { market?: string; stage?: string; region?: string }) => {
+  const pieces: string[] = [];
+  if (c) pieces.push(`Context/Hint: "${c}"`);
+  if (m?.market) pieces.push(`Market: ${m.market}`);
+  if (m?.stage) pieces.push(`Stage: ${m.stage}`);
+  if (m?.region) pieces.push(`Region: ${m.region}`);
+  const contextPrompt = pieces.length > 0 ? pieces.join(" | ") + "\n\n" : '';
   return `${contextPrompt}${basePrompt.replace("__QUERY__", q)}`;
 };
 
@@ -197,8 +206,8 @@ const callGemini = async (p: string) => {
 };
 
 
-// First pass: original query
-const firstJson = await callGemini(renderPrompt(query, context));
+// First pass: original query (include meta if provided)
+const firstJson = await callGemini(renderPrompt(query, context, meta));
 let parsed: any;
 try {
   parsed = JSON.parse(firstJson);
@@ -215,7 +224,7 @@ const hasExact = list.some(
 
 if (!hasExact) {
   const retryPrompt =
-    renderPrompt(query, context) +
+    renderPrompt(query, context, meta) +
     "\n\nRETRY: If you did not find an exact-name match, now explicitly try the domain and name-variant strategies listed above and return up to 5 best candidates.";
 
   const retryJson = await callGemini(retryPrompt);
@@ -261,15 +270,24 @@ const proTips = [
   'The system prefers official websites or well-known profiles when picking candidates.',
 ];
 
-const mandateEffect = context
-  ? `Context "${context}" was used to bias results toward that industry/setting.`
-  : 'No extra context provided — results favor best name matches and domain/name variants.';
+const metaParts: string[] = [];
+if (meta?.market) metaParts.push(`market: ${meta.market}`);
+if (meta?.stage) metaParts.push(`stage: ${meta.stage}`);
+if (meta?.region) metaParts.push(`region: ${meta.region}`);
+
+const mandateEffect = [
+  context ? `Context "${context}" was used to bias results toward that industry/setting.` : null,
+  metaParts.length ? `Additional filters applied (${metaParts.join(', ')}).` : null,
+]
+  .filter(Boolean)
+  .join(' ')
+  || 'No extra context provided — results favor best name matches and domain/name variants.';
 
 const whyThisWorked = hasExact
   ? `An exact-name match was found for "${query}". Context was used to disambiguate nearby matches.`
   : startups.length > 0
-    ? `No exact-name match for "${query}". The search tried domain and name-variant strategies (common suffixes and domain endings) and returned likely candidates. ${context ? `Context "${context}" guided the results.` : ''}`
-    : `No reasonable candidates found for "${query}". Try adding context (industry, location, or "company") to improve results.`;
+    ? `No exact-name match for "${query}". The search tried domain and name-variant strategies (common suffixes and domain endings) and returned likely candidates. ${context ? `Context "${context}" guided the results.` : ''} ${metaParts.length ? `Filters (${metaParts.join(', ')}) were applied.` : ''}`
+    : `No reasonable candidates found for "${query}". Try adding context (industry, location, or "company") or structured filters (market/stage/region) to improve results.`;
 
 // Return startups plus help metadata
 return {
@@ -294,16 +312,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { query, context } = req.body as { query?: string; context?: string };
+    const { query, context, market, stage, region } = req.body as { query?: string; context?: string; market?: string; stage?: string; region?: string };
 
     if (!query || !query.trim()) {
       return res.status(400).json({ error: "Missing 'query' in request body" });
     }
 
-    console.log("[/api/gemini-search] Query:", query);
+    console.log("[/api/gemini-search] Query:", query, { market, stage, region });
 
-    // handle new return shape
-    const result = await findStartupsWithGemini(query, context);
+    // handle new return shape, pass structured meta
+    const result = await findStartupsWithGemini(query, context, { market, stage, region });
     const { startups, help } = result;
 
     return res.status(200).json({ startups, help });

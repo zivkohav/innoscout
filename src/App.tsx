@@ -20,6 +20,10 @@ const App: React.FC = () => {
   const [searchStatus, setSearchStatus] = useState<'idle' | 'searching' | 'selecting' | 'evaluating'>('idle');
   const [candidates, setCandidates] = useState<StartupCandidate[]>([]);
   const [help, setHelp] = useState<HelpPayload | null>(null);
+  // Structured search fields to help users craft precise queries
+  const [market, setMarket] = useState<string>('');
+  const [stage, setStage] = useState<string>('Any');
+  const [region, setRegion] = useState<string>('');
 
   // File Upload State
   const [selectedFile, setSelectedFile] = useState<{ name: string; data: string; mimeType: string } | null>(null);
@@ -124,7 +128,7 @@ const App: React.FC = () => {
     const manualCandidate: StartupCandidate = {
       id: "manual-upload",
       name: searchInput,
-      description: `Analysis based on uploaded document: ${selectedFile.name}`,
+      description: `Analysis based on uploaded document: ${selectedFile.name}. Market: ${market || 'N/A'}, Stage: ${stage || 'Any'}, Region: ${region || 'N/A'}`,
       url: "",
     };
 
@@ -176,16 +180,19 @@ try {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      query: state.searchQuery,
+      query: searchInput,
+      market,
+      stage,
+      region,
       context: state.clarificationAnswers,
     }),
   });
   const data = await response.json();
-  setStartups(data.startups || []);
+  const found = data.startups || [];
+  setCandidates(found);
   setHelp(data.help || null);
 
-  if (startups.length > 0) {
-    setCandidates(startups);
+  if (found.length > 0) {
     setSearchStatus("selecting");
   } else {
     alert("No startups found. Please try a different query.");
@@ -400,6 +407,41 @@ try {
                       {selectedFile ? 'Evaluate File' : 'Find Startup'}
                     </button>
                   </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 items-center max-w-3xl">
+                    <input
+                      type="text"
+                      value={market}
+                      onChange={(e) => setMarket(e.target.value)}
+                      placeholder="Market (e.g., climate-tech, healthcare)"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-slate-200 placeholder-slate-500"
+                    />
+
+                    <select
+                      value={stage}
+                      onChange={(e) => setStage(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-slate-200"
+                    >
+                      <option>Any</option>
+                      <option>Pre-seed</option>
+                      <option>Seed</option>
+                      <option>Series A</option>
+                      <option>Series B</option>
+                      <option>Growth</option>
+                    </select>
+
+                    <input
+                      type="text"
+                      value={region}
+                      onChange={(e) => setRegion(e.target.value)}
+                      placeholder="Region (e.g., Europe, US)"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-slate-200 placeholder-slate-500"
+                    />
+                  </div>
+
+                  <p className="mt-3 text-sm text-slate-400 max-w-2xl">
+                    Tip: include market, stage, or region for better results — e.g. "Series A climate-tech in Europe".
+                  </p>
 
                   {/* File Chip */}
                   {selectedFile && (
