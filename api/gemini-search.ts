@@ -133,10 +133,7 @@ CONSTRAINTS:
 - If nothing reasonable is found at all, return: { "startups": [] }.
 `;
 
-
-
-
-const result = await ai.models.generateContent({
+const result = await (ai.models as any).generateContent({
   model,
   contents: prompt,
   generationConfig: {
