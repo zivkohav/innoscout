@@ -11,7 +11,7 @@ import { Search, Sparkles, Database, Plus, Zap, Loader2, Paperclip, X, FileText,
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
-    phase: 'onboarding',
+    phase: 'evaluation',
     mandates: [],
     activeMandateId: null,
     clarificationQuestions: [],
@@ -29,7 +29,8 @@ const App: React.FC = () => {
   const [region, setRegion] = useState<string>('');
 
   // File Upload State
-  const [selectedFile, setSelectedFile] = useState<{ name: string; data: string; mimeType: string } | null>(null);
+  const [selectedFile, setSelectedFile] = useState<{ name: string; data?: string; mimeType: string; publicUrl?: string } | null>(null);
+  const [reportedLocation, setReportedLocation] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Comparison View State
@@ -51,14 +52,15 @@ const App: React.FC = () => {
       try {
         const response = await fetch('/api/mandates');
         const data = await response.json();
-        if (data.mandates && data.mandates.length > 0) {
-          setState(prev => ({
-            ...prev,
-            mandates: data.mandates,
-            activeMandateId: data.activeMandateId || data.mandates[0].id,
-            phase: 'evaluation'
-          }));
-        }
+        // Always set mandates if returned; keep the app in `evaluation`
+        // phase even if no mandates are present so the user lands on
+        // the startup search page directly.
+        setState(prev => ({
+          ...prev,
+          mandates: data.mandates || [],
+          activeMandateId: data.activeMandateId || (data.mandates && data.mandates[0]?.id) || prev.activeMandateId,
+          phase: 'evaluation'
+        }));
       } catch (error) {
         console.error('Failed to load mandates from backend:', error);
         // Fall back to onboarding if backend unavailable
@@ -219,79 +221,37 @@ const App: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64String = event.target?.result as string;
-      const base64Data = base64String.split(',')[1];
-      setSelectedFile({
-        name: file.name,
-        mimeType: file.type,
-        data: base64Data
-      });
-      if (!searchInput) {
-        setSearchInput(file.name.split('.')[0]);
-      }
-    };
-    reader.readAsDataURL(file);
+    // Instead of reading and processing the file client-side, just record
+    // its name and assume it's served from the app `public/` folder so we
+    // can report the public URL. Do not process or send the file further.
+    const publicUrl = `/${file.name}`;
+    setSelectedFile({
+      name: file.name,
+      mimeType: file.type,
+      publicUrl,
+    });
+    setReportedLocation(null);
+    if (!searchInput) {
+      setSearchInput(file.name.split('.')[0]);
+    }
   };
 
   const clearFile = () => {
     setSelectedFile(null);
+    setReportedLocation(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
- const handleAction = async () => {
+  const handleAction = async () => {
   if (!searchInput.trim()) return;
 
-  // CASE 1: Evaluate an uploaded file directly
+  // CASE 1: Report location for an uploaded file (no further processing)
   if (selectedFile) {
-    setSearchStatus("evaluating");
-
-    const manualCandidate: StartupCandidate = {
-      id: "manual-upload",
-      name: searchInput,
-      description: `Analysis based on uploaded document: ${selectedFile.name}. Market: ${market || 'N/A'}, Stage: ${stage || 'Any'}, Region: ${region || 'N/A'}`,
-      url: "",
-    };
-
-    try {
-      const response = await fetch("/api/gemini-evaluate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          candidate: manualCandidate,
-          context: clarificationAnswers,
-          refinementHistory: refinementRules,
-          fileData: {
-            mimeType: selectedFile.mimeType,
-            data: selectedFile.data,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || "Request failed");
-      }
-
-      const result: EvaluationResult = await response.json();
-
-      // timestamp evaluation for history grouping and attach mandateId
-      const stamped = { ...result, evaluatedAt: new Date().toISOString(), mandateId: activeMandate?.id };
-      setState((prev) => ({
-        ...prev,
-        evaluations: [stamped, ...prev.evaluations],
-      }));
-
-      setSearchInput("");
-      clearFile();
-      setSearchStatus("idle");
-    } catch (error: any) {
-      console.error(error);
-      alert(`Evaluation Failed: ${error.message}`);
-      setSearchStatus("idle");
-    }
-
+    // Do not send file for evaluation. Instead show the public URL (assumes file
+    // was placed in the app `public/` folder). This meets the requirement to
+    // report its location and not process it further.
+    setReportedLocation(selectedFile.publicUrl || `/${selectedFile.name}`);
+    setSearchStatus('idle');
     return;
   }
 
@@ -549,7 +509,7 @@ try {
                           ? 'bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-900/20'
                           : 'bg-slate-700 hover:bg-slate-600 text-white'}`}
                     >
-                      {selectedFile ? 'Evaluate File' : 'Find Startup'}
+                      {selectedFile ? 'Report Location' : 'Find Startup'}
                     </button>
                   </div>
 
@@ -596,6 +556,18 @@ try {
                       <button onClick={clearFile} className="hover:text-white ml-1">
                         <X className="w-3 h-3" />
                       </button>
+                    </div>
+                  )}
+
+                  {reportedLocation && (
+                    <div className="mt-4 p-3 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 max-w-3xl">
+                      <div className="font-semibold text-slate-100 mb-1">File location</div>
+                      <div>
+                        <a href={reportedLocation} target="_blank" rel="noreferrer" className="text-violet-400 underline truncate">
+                          {reportedLocation}
+                        </a>
+                      </div>
+                      <div className="text-xs text-slate-400 mt-1">The app will not process the file further.</div>
                     </div>
                   )}
                 </div>
