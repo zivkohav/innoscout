@@ -162,6 +162,8 @@ try {
 
 const list = Array.isArray(parsed.startups) ? parsed.startups : [];
 
+console.log("[/api/gemini-search] startups from Gemini:", list);
+
 return list.map((c: any, idx: number) => ({
   id: `gemini-${idx}`,
   name: c.name || "Unknown Name",
