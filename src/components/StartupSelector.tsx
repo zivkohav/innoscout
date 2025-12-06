@@ -13,7 +13,7 @@ interface Props {
     proTips?: string[];
     mandateEffect?: string;
     whyThisWorked?: string;
-  };
+  } | null;
 }
 
 const StartupSelector: React.FC<Props> = ({ candidates, onSelect, onCancel, help }) => {

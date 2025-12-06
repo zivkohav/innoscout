@@ -13,6 +13,7 @@ export interface EvaluationResult {
   redFlags: string[];
   isNoGo: boolean;
   sources?: string[]; // URLs from grounding
+  evaluatedAt?: string; // ISO timestamp when evaluation was performed (frontend-added)
 }
 
 export interface Question {
@@ -41,5 +42,20 @@ export interface AppState {
   clarificationAnswers: Answer[];
   evaluations: EvaluationResult[];
   refinementRules: string[]; // User feedback loop
+}
+
+export interface HelpExample {
+  input: string;
+  result: string;
+}
+
+export interface HelpPayload {
+  alwaysVisible?: boolean;
+  displayAsTooltip?: boolean;
+  infoToggleLabel?: string;
+  examples?: HelpExample[];
+  proTips?: string[];
+  mandateEffect?: string;
+  whyThisWorked?: string;
 }
 

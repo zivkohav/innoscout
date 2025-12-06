@@ -3,6 +3,7 @@ import { Answer, EvaluationResult, AppState, StartupCandidate, HelpPayload } fro
 import ClarificationWizard from './components/ClarificationWizard';
 import EvaluationCard from './components/EvaluationCard';
 import StartupSelector from './components/StartupSelector';
+import SearchHistory from './components/SearchHistory';
 import CriteriaPanel from './components/CriteriaPanel';
 import { Search, Sparkles, Database, Plus, Zap, Loader2, Paperclip, X, FileText, RotateCcw } from 'lucide-react';
 
@@ -154,9 +155,11 @@ const App: React.FC = () => {
 
       const result: EvaluationResult = await response.json();
 
+      // timestamp evaluation for history grouping
+      const stamped = { ...result, evaluatedAt: new Date().toISOString() };
       setState((prev) => ({
         ...prev,
-        evaluations: [result, ...prev.evaluations],
+        evaluations: [stamped, ...prev.evaluations],
       }));
 
       setSearchInput("");
@@ -228,9 +231,10 @@ try {
 
     const result: EvaluationResult = await response.json();
 
+    const stamped = { ...result, evaluatedAt: new Date().toISOString() };
     setState((prev) => ({
       ...prev,
-      evaluations: [result, ...prev.evaluations],
+      evaluations: [stamped, ...prev.evaluations],
     }));
 
     // Reset search flow
@@ -505,14 +509,25 @@ try {
                   <p className="text-slate-600">Search for a startup or upload a deck to begin scouting.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {state.evaluations.map((evaluation, idx) => (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2">
                     <EvaluationCard
-                      key={idx}
-                      evaluation={evaluation}
+                      evaluation={state.evaluations[0]}
                       onRefine={handleRefine}
                     />
-                  ))}
+                  </div>
+                  <div className="lg:col-span-1">
+                    <SearchHistory
+                      items={state.evaluations.slice(1)}
+                      onSelect={(ev) => {
+                        // promote selected history item to the top
+                        setState((prev) => {
+                          const rest = prev.evaluations.filter((e) => e !== ev);
+                          return { ...prev, evaluations: [ev, ...rest] };
+                        });
+                      }}
+                    />
+                  </div>
                 </div>
               )}
             </div>
