@@ -265,76 +265,91 @@ const startups = list.map((c: any, idx: number) => ({
   description: c.description || "No description available.",
 }));
 
-// If Gemini returned nothing, try a deterministic URL probe for exact-name variants
-if (startups.length === 0) {
-  const tlds = ['.com', '.bio', '.io', '.ai', '.tech', '.jp', '.co.jp'];
-  const tryUrls: string[] = [];
-  const base = query.trim();
-  tlds.forEach((t) => {
-    if (t === '.co.jp') {
-      tryUrls.push(`https://${base}.co.jp`);
-      tryUrls.push(`https://www.${base}.co.jp`);
-    } else {
-      tryUrls.push(`https://${base}${t}`);
-      tryUrls.push(`https://www.${base}${t}`);
-    }
-  });
-
-  // Also try lowercase and with /en
-  const expanded = tryUrls.flatMap((u) => [u, u + '/en']);
-
-  const checkUrl = async (url: string) => {
+// Helper: check if URL is live with HEAD/GET fallback
+const checkUrl = async (url: string) => {
+  try {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 3000);
+    let resp: any = null;
     try {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 3000);
-      // Try HEAD first, fall back to GET for servers that block HEAD
-      let resp: any = null;
+      resp = await fetch(url, { method: 'HEAD', signal: controller.signal } as any).catch(() => null);
+    } catch (e) {
+      resp = null;
+    }
+    if (!resp) {
       try {
-        resp = await fetch(url, { method: 'HEAD', signal: controller.signal } as any).catch(() => null);
+        resp = await fetch(url, { method: 'GET', signal: controller.signal } as any).catch(() => null);
       } catch (e) {
         resp = null;
       }
-      if (!resp) {
-        try {
-          resp = await fetch(url, { method: 'GET', signal: controller.signal } as any).catch(() => null);
-        } catch (e) {
-          resp = null;
+    }
+    clearTimeout(id);
+    if (resp && (resp.status === 200 || resp.status === 301 || resp.status === 302)) return true;
+  } catch (e) {
+    // ignore
+  }
+  return false;
+};
+
+// Always probe for direct domain matches (even if Gemini returned results)
+// This ensures we find sites like becaps.bio, symbiobe.jp, etc.
+const probeForDirectMatches = async (base: string, existing: typeof startups) => {
+  const tlds = ['.bio', '.com', '.io', '.ai', '.tech', '.jp', '.co.jp'];
+  const found: any[] = [];
+  
+  // Generate case + spacing variants
+  const baseVariants = [
+    base.trim(),
+    base.trim().toLowerCase(),
+    base.trim().replace(/\s+/g, ''),
+    base.trim().replace(/\s+/g, '').toLowerCase(),
+  ];
+  
+  // Remove duplicates
+  const uniqueVariants = Array.from(new Set(baseVariants));
+  
+  for (const variant of uniqueVariants) {
+    if (!variant) continue;
+    
+    for (const tld of tlds) {
+      const urls = [
+        `https://${variant}${tld}`,
+        `https://www.${variant}${tld}`,
+        `https://${variant}${tld}/en`,
+        `https://www.${variant}${tld}/en`,
+      ];
+      
+      for (const url of urls) {
+        // eslint-disable-next-line no-await-in-loop
+        const isLive = await checkUrl(url);
+        if (isLive) {
+          const isDuplicate = existing.some((c: any) => 
+            (c.url || '').toLowerCase() === (url || '').toLowerCase() ||
+            (c.name || '').toLowerCase() === (variant || '').toLowerCase()
+          );
+          if (!isDuplicate) {
+            found.push({
+              id: `probe-${found.length}`,
+              name: variant,
+              url: url,
+              description: `Official website for ${variant}`,
+            });
+          }
+          break;
         }
       }
-      clearTimeout(id);
-      if (resp && (resp.status === 200 || resp.status === 301 || resp.status === 302)) return true;
-    } catch (e) {
-      // ignore
+      
+      if (found.length >= 2) break;
     }
-    return false;
-  };
-
-  for (const url of expanded) {
-    // try lowercase variant too
-    const variants = [url, url.replace(base, base.toLowerCase())];
-    for (const v of variants) {
-      // eslint-disable-next-line no-await-in-loop
-      const ok = await checkUrl(v);
-      if (ok) {
-        const candidate = {
-          id: `probe-0`,
-          name: base,
-          url: v,
-          description: `Official website discovered by probing common domains for ${base}`,
-        };
-        return { startups: [candidate], help: {
-          alwaysVisible: true,
-          displayAsTooltip: true,
-          infoToggleLabel: 'Search Tips (ℹ️)',
-          examples: [],
-          proTips: ['We probed common domain patterns and found a likely official site.'],
-          whyThisWorked: `A live website was detected at ${v}`,
-          mandateEffect: context ? `Context "${context}" was used.` : undefined,
-        } };
-      }
-    }
+    if (found.length >= 2) break;
   }
-}
+  
+  return found;
+};
+
+// Run probing and merge with Gemini results
+const probed = await probeForDirectMatches(query, startups);
+const enrichedStartups = [...probed, ...startups];
 
 // Construct simplified, user-friendly examples & tips (extracted/simplified from file header)
 const examples: HelpExample[] = [
@@ -366,13 +381,13 @@ const mandateEffect = [
 
 const whyThisWorked = hasExact
   ? `An exact-name match was found for "${query}". Context was used to disambiguate nearby matches.`
-  : startups.length > 0
+  : enrichedStartups.length > 0
     ? `No exact-name match for "${query}". The search tried domain and name-variant strategies (common suffixes and domain endings) and returned likely candidates. ${context ? `Context "${context}" guided the results.` : ''} ${metaParts.length ? `Filters (${metaParts.join(', ')}) were applied.` : ''}`
     : `No reasonable candidates found for "${query}". Try adding context (industry, location, or "company") or structured filters (market/stage/region) to improve results.`;
 
-// Return startups plus help metadata
+// Return enrichedStartups (Gemini results + probed sites) plus help metadata
 return {
-  startups,
+  startups: enrichedStartups,
   help: {
     alwaysVisible: true,
     displayAsTooltip: true,
