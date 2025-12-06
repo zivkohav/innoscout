@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Answer, EvaluationResult, AppState, StartupCandidate } from './types';
+import { Answer, EvaluationResult, AppState, StartupCandidate, HelpPayload } from './types';
 import ClarificationWizard from './components/ClarificationWizard';
 import EvaluationCard from './components/EvaluationCard';
 import StartupSelector from './components/StartupSelector';
@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [searchInput, setSearchInput] = useState('');
   const [searchStatus, setSearchStatus] = useState<'idle' | 'searching' | 'selecting' | 'evaluating'>('idle');
   const [candidates, setCandidates] = useState<StartupCandidate[]>([]);
+  const [help, setHelp] = useState<HelpPayload | null>(null);
 
   // File Upload State
   const [selectedFile, setSelectedFile] = useState<{ name: string; data: string; mimeType: string } | null>(null);
@@ -174,21 +175,14 @@ try {
   const response = await fetch("/api/gemini-search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query: searchInput }),
+    body: JSON.stringify({
+      query: state.searchQuery,
+      context: state.clarificationAnswers,
+    }),
   });
-
-  console.log("[handleAction] Response status:", response.status);
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    console.error("[handleAction] Error body:", err);
-    throw new Error(err.error || "Request failed");
-  }
-
   const data = await response.json();
-  const startups: StartupCandidate[] = data.startups || [];
-
-  console.log("[handleAction] Parsed startups:", startups);
+  setStartups(data.startups || []);
+  setHelp(data.help || null);
 
   if (startups.length > 0) {
     setCandidates(startups);
@@ -435,6 +429,7 @@ try {
                     setSearchStatus('idle');
                     setCandidates([]);
                   }}
+                  help={help}
                 />
               )}
 
