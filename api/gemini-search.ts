@@ -29,6 +29,21 @@ type StartupCandidate = {
   description: string;
 };
 
+type HelpExample = {
+  input: string; // what user typed (query + optional context)
+  result: string; // micro-copy describing the effect
+};
+
+type HelpPayload = {
+  alwaysVisible: boolean; // front-end should always show the help affordance
+  displayAsTooltip: boolean; // show inline as a tooltip/inline micro-copy
+  infoToggleLabel: string; // label for the ℹ️ toggle
+  examples: HelpExample[]; // simplified user-friendly examples
+  proTips: string[]; // short tips for Criteria Panel
+  whyThisWorked?: string; // brief explanation after results load
+  mandateEffect?: string; // how the current mandate/context was applied
+};
+
 // Clean JSON if Gemini wraps it in ```json ... ```
 const cleanJson = (text: string | undefined | null): string => {
   if (!text) return "";
@@ -57,7 +72,7 @@ const getApiKey = (): string => {
   return process.env.GEMINI_API_KEY;
 };
 
-const findStartupsWithGemini = async (query: string, context?: string): Promise<StartupCandidate[]> => {
+const findStartupsWithGemini = async (query: string, context?: string): Promise<{ startups: StartupCandidate[]; help: HelpPayload }> => {
   const apiKey = getApiKey();
   const ai = new GoogleGenAI({
   apiKey,
@@ -223,12 +238,52 @@ if (!hasExact) {
 }
 
 console.log("[/api/gemini-search] startups from Gemini (final):", list);
-return list.map((c: any, idx: number) => ({
+
+const startups = list.map((c: any, idx: number) => ({
   id: `gemini-${idx}`,
   name: c.name || "Unknown Name",
   url: c.url || "",
   description: c.description || "No description available.",
 }));
+
+// Construct simplified, user-friendly examples & tips (extracted/simplified from file header)
+const examples: HelpExample[] = [
+  { input: 'Neo + biotech', result: 'Finds Neo Biotech (company), not gaming platforms.' },
+  { input: 'Lumen + metabolic health', result: 'Finds Lumen Health (metabolic health startup), not lighting companies.' },
+  { input: 'Symbiobe + microbiome', result: 'Finds microbiome-focused Symbiobe, not unrelated brands.' },
+  // optional fourth concise example
+  { input: 'CropMind + agriculture', result: 'Finds agri-tech CropMind, not unrelated software.' },
+];
+
+const proTips = [
+  'Use short context words (industry, tech, location) to narrow ambiguous names.',
+  'If a name is ambiguous, try adding "company", "labs", or a location (e.g., "Berlin").',
+  'The system prefers official websites or well-known profiles when picking candidates.',
+];
+
+const mandateEffect = context
+  ? `Context "${context}" was used to bias results toward that industry/setting.`
+  : 'No extra context provided — results favor best name matches and domain/name variants.';
+
+const whyThisWorked = hasExact
+  ? `An exact-name match was found for "${query}". Context was used to disambiguate nearby matches.`
+  : startups.length > 0
+    ? `No exact-name match for "${query}". The search tried domain and name-variant strategies (common suffixes and domain endings) and returned likely candidates. ${context ? `Context "${context}" guided the results.` : ''}`
+    : `No reasonable candidates found for "${query}". Try adding context (industry, location, or "company") to improve results.`;
+
+// Return startups plus help metadata
+return {
+  startups,
+  help: {
+    alwaysVisible: true,
+    displayAsTooltip: true,
+    infoToggleLabel: 'Search Tips (ℹ️)',
+    examples,
+    proTips,
+    whyThisWorked,
+    mandateEffect,
+  },
+};
 
 };
 
@@ -247,9 +302,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log("[/api/gemini-search] Query:", query);
 
-    const startups = await findStartupsWithGemini(query, context);
+    // handle new return shape
+    const result = await findStartupsWithGemini(query, context);
+    const { startups, help } = result;
 
-    return res.status(200).json({ startups });
+    return res.status(200).json({ startups, help });
   } catch (error: any) {
     console.error("Error in /api/gemini-search:", error);
     return res
