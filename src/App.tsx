@@ -167,34 +167,42 @@ const App: React.FC = () => {
   }
 
   // CASE 2: Search for startups by name (no file)
-  setSearchStatus("searching");
-  try {
-    const response = await fetch("/api/gemini-search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: searchInput }),
-    });
+setSearchStatus("searching");
+try {
+  console.log("[handleAction] Sending search request for:", searchInput);
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || "Request failed");
-    }
+  const response = await fetch("/api/gemini-search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: searchInput }),
+  });
 
-    const data = await response.json();
-    const startups: StartupCandidate[] = data.startups || [];
+  console.log("[handleAction] Response status:", response.status);
 
-    if (startups.length > 0) {
-      setCandidates(startups);
-      setSearchStatus("selecting");
-    } else {
-      alert("No startups found. Please try a different query.");
-      setSearchStatus("idle");
-    }
-  } catch (error: any) {
-    console.error(error);
-    alert(`Search Failed: ${error.message}`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    console.error("[handleAction] Error body:", err);
+    throw new Error(err.error || "Request failed");
+  }
+
+  const data = await response.json();
+  const startups: StartupCandidate[] = data.startups || [];
+
+  console.log("[handleAction] Parsed startups:", startups);
+
+  if (startups.length > 0) {
+    setCandidates(startups);
+    setSearchStatus("selecting");
+  } else {
+    alert("No startups found. Please try a different query.");
     setSearchStatus("idle");
   }
+} catch (error: any) {
+  console.error(error);
+  alert(`Search Failed: ${error.message}`);
+  setSearchStatus("idle");
+}
+
 };
 
 
