@@ -1,4 +1,24 @@
 // api/gemini-search.ts
+/**
+ * USAGE INSTRUCTIONS:
+ * 
+ * POST /api/gemini-search
+ * 
+ * Request body:
+ * {
+ *   "query": "startup name or product to search for",
+ *   "context": "(optional) additional context to narrow results"
+ * }
+ * 
+ * SEARCH CONTEXT TIPS:
+ * - Use 'context' to refine results when the query name is ambiguous
+ * - Examples:
+ *   - query: "Neo", context: "biotech company" → finds Neo Biotech, not gaming platforms
+ *   - query: "Lumen", context: "metabolic health" → finds Lumen Health, not lighting companies
+ *   - query: "Symbiobe", context: "microbiome startup" → disambiguates from similar names
+ * - Context can include: industry, technology focus, location, founding year, or any relevant detail
+ * - Better context = more accurate results
+ */
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI } from "@google/genai";
 
@@ -51,6 +71,7 @@ const basePrompt = `
 You are a startup research assistant. Your ONLY task is to identify real startups or technology companies that match the user query.
 
 User Query: "__QUERY__"
+__CONTEXT__
 
 PRIMARY GOAL:
 Return a SHORTLIST of real companies so the user can choose the correct one,
@@ -145,7 +166,7 @@ ADDITIONAL HELP FOR TRICKY NAMES:
 
 // Render prompt for the query
 const renderPrompt = (q: string, c?: string) => {
-  const contextPrompt = c ? `Context: "${c}"\n` : '';
+  const contextPrompt = c ? `Context/Hint: "${c}"` : '';
   return `${contextPrompt}${basePrompt.replace("__QUERY__", q)}`;
 };
 
