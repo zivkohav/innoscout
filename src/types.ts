@@ -33,6 +33,9 @@ export interface StartupCandidate {
   name: string;
   url?: string;
   description: string;
+  industry?: string;
+  technologies?: string[];
+  location?: string;
 }
 
 export interface AppState {

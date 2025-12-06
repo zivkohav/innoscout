@@ -27,6 +27,9 @@ type StartupCandidate = {
   name: string;
   url: string;
   description: string;
+  industry?: string;
+  technologies?: string[];
+  location?: string;
 };
 
 type HelpExample = {
@@ -140,7 +143,10 @@ Output ONLY JSON in this shape, with NO extra commentary:
     {
       "name": "Company name",
       "url": "https://official-website-or-main-profile",
-      "description": "One sentence describing their core technology or product."
+      "description": "One sentence describing their core technology or product.",
+      "industry": "Industry or vertical (e.g., biotech, climate-tech, healthcare)",
+      "technologies": ["Key technology 1", "Key technology 2"],
+      "location": "City, Country or region"
     }
   ]
 }
@@ -153,7 +159,10 @@ STRUCTURE EXAMPLE (NOT REAL DATA):
     {
       "name": "Symbiobe",
       "url": "https://symbiobe.com/",
-      "description": "Microbiome-focused biotech company working on symbiotic solutions."
+      "description": "Microbiome-focused biotech company working on symbiotic solutions.",
+      "industry": "Biotech / Healthcare",
+      "technologies": ["Microbiome science", "Symbiotic therapeutics"],
+      "location": "Tokyo, Japan"
     },
     {
       "name": "Symbiome",
@@ -263,6 +272,9 @@ const startups = list.map((c: any, idx: number) => ({
   name: c.name || "Unknown Name",
   url: c.url || "",
   description: c.description || "No description available.",
+  industry: c.industry || undefined,
+  technologies: c.technologies || undefined,
+  location: c.location || undefined,
 }));
 
 // Helper: check if URL is live with HEAD/GET fallback
@@ -333,6 +345,9 @@ const probeForDirectMatches = async (base: string, existing: typeof startups) =>
               name: variant,
               url: url,
               description: `Official website for ${variant}`,
+              industry: undefined,
+              technologies: undefined,
+              location: undefined,
             });
           }
           break;

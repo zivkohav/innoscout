@@ -58,6 +58,21 @@ const StartupSelector: React.FC<Props> = ({ candidates, onSelect, onCancel, help
                       )}
                   </div>
                   <p className="text-sm text-slate-400 mt-1 line-clamp-2">{candidate.description}</p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {candidate.industry && (
+                      <span className="text-xs bg-slate-700 text-slate-200 px-2 py-1 rounded">{candidate.industry}</span>
+                    )}
+                    {candidate.location && (
+                      <span className="text-xs bg-slate-700 text-slate-200 px-2 py-1 rounded">{candidate.location}</span>
+                    )}
+                  </div>
+                  {candidate.technologies && candidate.technologies.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {candidate.technologies.slice(0, 3).map((tech, idx) => (
+                        <span key={idx} className="text-xs bg-violet-900/40 text-violet-300 px-2 py-0.5 rounded">{tech}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="self-center opacity-0 group-hover:opacity-100 transition-opacity">
                   <ArrowRight className="w-5 h-5 text-violet-400" />
