@@ -47,30 +47,51 @@ const findStartupsWithGemini = async (query: string): Promise<StartupCandidate[]
   // Use a stable, widely-available model
  const model = "gemini-2.0-flash";
 
-  const prompt = `
+const prompt = `
 You are a startup research assistant. Your ONLY task is to identify real startups or technology companies that match the user query.
 
 User Query: "${query}"
 
-IMPORTANT RULES:
-1. Treat the query primarily as a STARTUP NAME or BRAND (e.g., "Symbiobe", "Anthropic", "CropMind"), not as evaluation criteria.
-2. First, try to find the company's OFFICIAL WEBSITE:
-   - Look for domain names that closely match the startup name.
-   - Examples:
-     - "Symbiobe" → symbiobe.com, symbiobe.bio, symbiome.com, etc.
-     - "CropMind" → cropmind.com, cropmind.ai, cropmind.io
-3. If the official website is unclear:
-   - Check named startup directories and databases such as:
-     - Crunchbase
-     - PitchBook
-     - AngelList
-     - YC, Techstars, accelerator portfolios
-     - LinkedIn company pages
-   - Use these sources to confirm that the company is real, and extract a short description.
-4. Do NOT invent fictional startups. Only include companies that have a visible digital footprint (website, directory entry, or LinkedIn page).
-5. Ignore any scoring criteria or evaluation context – you are ONLY doing name-based company lookup.
+GOAL:
+Return a SHORTLIST of real companies so the user can choose the correct one,
+especially when there are multiple startups with similar or confusing names.
 
-OUTPUT FORMAT (STRICT JSON):
+RULES:
+
+1. TREAT THE QUERY AS A NAME
+   - Assume the query is primarily a startup / company / product NAME (e.g., "Symbiobe", "CropMind", "Neo", "Lumen").
+   - Do NOT treat it as evaluation criteria or a long description.
+
+2. FIND MULTIPLE CANDIDATES (VERY IMPORTANT)
+   - Always try to return between 2 and 5 candidates when possible.
+   - Include:
+     - The best exact match (if one exists).
+     - Close alternatives:
+       - Slight spelling variations.
+       - Different suffixes (Labs, AI, Systems, Technologies, Biosciences, etc.).
+       - Different domains (.com, .ai, .io, .bio, etc.).
+   - Only return 1 startup **if you are very confident** there is only one real company with that name.
+
+3. DIGITAL FOOTPRINT
+   - For each candidate, look for:
+     - Official WEBSITE whose domain closely matches the name
+       - e.g., "Symbiobe" → symbiobe.com, symbiobe.bio, symbiome.com
+       - e.g., "CropMind" → cropmind.com, cropmind.ai, cropmind.io
+     - OR, if the website is unclear:
+       - Crunchbase company profile
+       - PitchBook profile
+       - AngelList
+       - Startup directories / accelerator portfolios
+       - LinkedIn company page
+   - Only include companies that have at least one clear digital footprint.
+
+4. DO NOT INVENT
+   - Do NOT hallucinate fictional startups.
+   - If you are not reasonably sure a company exists, do not include it.
+
+5. OUTPUT FORMAT (STRICT JSON)
+
+Output ONLY JSON in this shape:
 
 {
   "startups": [
@@ -82,18 +103,41 @@ OUTPUT FORMAT (STRICT JSON):
   ]
 }
 
-Constraints:
+EXAMPLES (STRUCTURE ONLY, NOT CONTENT):
+
+{
+  "startups": [
+    {
+      "name": "Symbiobe",
+      "url": "https://symbiobe.com/",
+      "description": "..."
+    },
+    {
+      "name": "Symbiome",
+      "url": "https://symbiome.com/",
+      "description": "..."
+    },
+    {
+      "name": "SymBio Labs",
+      "url": "https://symbiolabs.com/",
+      "description": "..."
+    }
+  ]
+}
+
+CONSTRAINTS:
 - Max 5 startups.
-- If you are not reasonably confident that a company exists, do NOT include it.
+- Prefer: [1 best exact match + 1–4 close alternatives].
 - If nothing reasonable is found, return: { "startups": [] }.
 `;
+
 
 
 const result = await ai.models.generateContent({
   model,
   contents: prompt,
   generationConfig: {
-    temperature: 0.2, // be conservative: less hallucination, more precise matching
+    temperature: 0.3, // be conservative: less hallucination, more precise matching
   },
 });
 
