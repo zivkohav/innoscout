@@ -47,10 +47,10 @@ const findStartupsWithGemini = async (query: string): Promise<StartupCandidate[]
   // Use a stable, widely-available model
  const model = "gemini-2.0-flash";
 
-const prompt = `
+const basePrompt = `
 You are a startup research assistant. Your ONLY task is to identify real startups or technology companies that match the user query.
 
-User Query: "${query}"
+User Query: "__QUERY__"
 
 PRIMARY GOAL:
 Return a SHORTLIST of real companies so the user can choose the correct one,
@@ -105,6 +105,7 @@ Output ONLY JSON in this shape, with NO extra commentary:
   ]
 }
 
+
 STRUCTURE EXAMPLE (NOT REAL DATA):
 
 {
@@ -131,36 +132,73 @@ CONSTRAINTS:
 - Return 2–5 startups whenever possible.
 - Prefer: [1 best exact match + 1–4 close alternatives].
 - If nothing reasonable is found at all, return: { "startups": [] }.
+
+ADDITIONAL HELP FOR TRICKY NAMES:
+- FIRST try to find an exact-name match (case-insensitive) for the query.
+- If you cannot find an exact match, TRY THESE STRATEGIES:
+  1) Try common domain suffixes for the name: .com, .io, .ai, .co, .tech, .jp (e.g., "Symbiobe.com", "Symbiobe.jp").
+  2) Try common company suffixes: "Labs", "Technologies", "AI", "Systems", "Solutions".
+  3) Try minor spelling variants (single-letter swaps or common typos).
+- Only include companies you are reasonably confident exist (visible website/profile).
+- Prefer official website URLs when available.
 `;
 
-const result = await (ai.models as any).generateContent({
-  model,
-  contents: prompt,
-  generationConfig: {
-    temperature: 0.3, // be conservative: less hallucination, more precise matching
-  },
-});
+// Render prompt for the query
+const renderPrompt = (q: string) => basePrompt.replace("__QUERY__", q);
 
-// Try to read text in a robust way
-const rawText =
-  (result as any).text ??
-  (result as any).candidates?.[0]?.content?.parts?.[0]?.text ??
-  "";
+const callGemini = async (p: string) => {
+  const r = await (ai.models as any).generateContent({
+    model,
+    contents: p,
+    generationConfig: { temperature: 0.25 },
+  });
+  const raw =
+    (r as any).text ?? (r as any).candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  return cleanJson(raw || "{}");
+};
 
-const jsonText = cleanJson(rawText || "{}");
 
+// First pass: original query
+const firstJson = await callGemini(renderPrompt(query));
 let parsed: any;
 try {
-  parsed = JSON.parse(jsonText);
+  parsed = JSON.parse(firstJson);
 } catch (e) {
-  console.error("Failed to parse JSON from Gemini:", jsonText);
-  throw new Error("Gemini returned invalid JSON");
+  parsed = { startups: [] };
 }
 
-const list = Array.isArray(parsed.startups) ? parsed.startups : [];
+let list = Array.isArray(parsed.startups) ? parsed.startups : [];
 
-console.log("[/api/gemini-search] startups from Gemini:", list);
+// If no close/exact match (by name) found, retry with explicit domain/name-variant instructions
+const hasExact = list.some(
+  (c: any) => typeof c.name === "string" && c.name.trim().toLowerCase() === query.trim().toLowerCase()
+);
 
+if (!hasExact) {
+  const retryPrompt =
+    renderPrompt(query) +
+    "\n\nRETRY: If you did not find an exact-name match, now explicitly try the domain and name-variant strategies listed above and return up to 5 best candidates.";
+
+  const retryJson = await callGemini(retryPrompt);
+  try {
+    const retryParsed = JSON.parse(retryJson);
+    const retryList = Array.isArray(retryParsed.startups) ? retryParsed.startups : [];
+    // prefer exact-name matches from retry, otherwise merge (dedupe by url or name)
+    const merged = [...retryList, ...list];
+    const seen = new Set<string>();
+    list = merged.filter((c: any) => {
+      const key = (c.url || c.name || "").toLowerCase();
+      if (!key) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  } catch (e) {
+    // keep original list
+  }
+}
+
+console.log("[/api/gemini-search] startups from Gemini (final):", list);
 return list.map((c: any, idx: number) => ({
   id: `gemini-${idx}`,
   name: c.name || "Unknown Name",
