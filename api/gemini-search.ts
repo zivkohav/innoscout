@@ -144,7 +144,10 @@ ADDITIONAL HELP FOR TRICKY NAMES:
 `;
 
 // Render prompt for the query
-const renderPrompt = (q: string) => basePrompt.replace("__QUERY__", q);
+const renderPrompt = (q: string, c?: string) => {
+  const contextPrompt = c ? `Context: "${c}"\n` : '';
+  return `${contextPrompt}${basePrompt.replace("__QUERY__", q)}`;
+};
 
 const callGemini = async (p: string) => {
   const r = await (ai.models as any).generateContent({
@@ -159,7 +162,7 @@ const callGemini = async (p: string) => {
 
 
 // First pass: original query
-const firstJson = await callGemini(renderPrompt(query));
+const firstJson = await callGemini(renderPrompt(query, context));
 let parsed: any;
 try {
   parsed = JSON.parse(firstJson);
@@ -176,7 +179,7 @@ const hasExact = list.some(
 
 if (!hasExact) {
   const retryPrompt =
-    renderPrompt(query) +
+    renderPrompt(query, context) +
     "\n\nRETRY: If you did not find an exact-name match, now explicitly try the domain and name-variant strategies listed above and return up to 5 best candidates.";
 
   const retryJson = await callGemini(retryPrompt);
@@ -215,7 +218,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { query } = req.body as { query?: string };
+    const { query, context } = req.body as { query?: string; context?: string };
 
     if (!query || !query.trim()) {
       return res.status(400).json({ error: "Missing 'query' in request body" });
