@@ -634,6 +634,7 @@ try {
                       evaluation={state.evaluations[0]}
                       onRefine={handleRefine}
                       onCompare={() => handleOpenComparison(state.evaluations[0].startupName)}
+                      mandateName={activeMandate?.name}
                     />
                   </div>
                   <div className="lg:col-span-1">
