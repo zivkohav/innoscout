@@ -37,7 +37,7 @@ const getApiKey = (): string => {
   return process.env.GEMINI_API_KEY;
 };
 
-const findStartupsWithGemini = async (query: string): Promise<StartupCandidate[]> => {
+const findStartupsWithGemini = async (query: string, context?: string): Promise<StartupCandidate[]> => {
   const apiKey = getApiKey();
   const ai = new GoogleGenAI({
   apiKey,
@@ -226,7 +226,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log("[/api/gemini-search] Query:", query);
 
-    const startups = await findStartupsWithGemini(query);
+    const startups = await findStartupsWithGemini(query, context);
 
     return res.status(200).json({ startups });
   } catch (error: any) {
