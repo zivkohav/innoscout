@@ -287,7 +287,20 @@ if (startups.length === 0) {
     try {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), 3000);
-      const resp = await fetch(url, { method: 'HEAD', signal: controller.signal } as any).catch(() => null);
+      // Try HEAD first, fall back to GET for servers that block HEAD
+      let resp: any = null;
+      try {
+        resp = await fetch(url, { method: 'HEAD', signal: controller.signal } as any).catch(() => null);
+      } catch (e) {
+        resp = null;
+      }
+      if (!resp) {
+        try {
+          resp = await fetch(url, { method: 'GET', signal: controller.signal } as any).catch(() => null);
+        } catch (e) {
+          resp = null;
+        }
+      }
       clearTimeout(id);
       if (resp && (resp.status === 200 || resp.status === 301 || resp.status === 302)) return true;
     } catch (e) {
