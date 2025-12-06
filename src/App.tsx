@@ -85,6 +85,28 @@ const App: React.FC = () => {
     }
   }, [refinementRules, activeMandate?.id]);
 
+  // Load saved evaluations from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('innoscout_evaluations');
+      if (raw) {
+        const parsed: EvaluationResult[] = JSON.parse(raw);
+        setState(prev => ({ ...prev, evaluations: parsed }));
+      }
+    } catch (e) {
+      console.warn('Failed to load saved evaluations', e);
+    }
+  }, []);
+
+  // Persist evaluations to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('innoscout_evaluations', JSON.stringify(state.evaluations || []));
+    } catch (e) {
+      console.warn('Failed to save evaluations', e);
+    }
+  }, [state.evaluations]);
+
   // --- END PERSISTENCE & MANDATE MANAGEMENT LOGIC ---
 
   const createNewMandate = async (topic: string) => {
