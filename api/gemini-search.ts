@@ -47,30 +47,54 @@ const findStartupsWithGemini = async (query: string): Promise<StartupCandidate[]
   // Use a stable, widely-available model
  const model = "gemini-2.0-flash";
 
-const prompt = `
+  const prompt = `
+You are a startup research assistant. Your ONLY task is to identify real startups or technology companies that match the user query.
+
 User Query: "${query}"
 
-Task: Suggest up to 5 real startups or technology companies that best match this name or description.
+IMPORTANT RULES:
+1. Treat the query primarily as a STARTUP NAME or BRAND (e.g., "Symbiobe", "Anthropic", "CropMind"), not as evaluation criteria.
+2. First, try to find the company's OFFICIAL WEBSITE:
+   - Look for domain names that closely match the startup name.
+   - Examples:
+     - "Symbiobe" → symbiobe.com, symbiobe.bio, symbiome.com, etc.
+     - "CropMind" → cropmind.com, cropmind.ai, cropmind.io
+3. If the official website is unclear:
+   - Check named startup directories and databases such as:
+     - Crunchbase
+     - PitchBook
+     - AngelList
+     - YC, Techstars, accelerator portfolios
+     - LinkedIn company pages
+   - Use these sources to confirm that the company is real, and extract a short description.
+4. Do NOT invent fictional startups. Only include companies that have a visible digital footprint (website, directory entry, or LinkedIn page).
+5. Ignore any scoring criteria or evaluation context – you are ONLY doing name-based company lookup.
 
-Instructions:
-- For each company, include:
-  - "name": company or startup name
-  - "url": official website URL (or main LinkedIn page if website unavailable)
-  - "description": a 1-sentence summary of their core technology or product.
-- Only include real companies (no fictional examples).
+OUTPUT FORMAT (STRICT JSON):
 
-Output strictly as JSON in this shape:
 {
   "startups": [
-    { "name": "...", "url": "...", "description": "..." }
+    {
+      "name": "Company name",
+      "url": "https://official-website-or-main-profile",
+      "description": "One sentence describing their core technology or product."
+    }
   ]
 }
+
+Constraints:
+- Max 5 startups.
+- If you are not reasonably confident that a company exists, do NOT include it.
+- If nothing reasonable is found, return: { "startups": [] }.
 `;
+
 
 const result = await ai.models.generateContent({
   model,
-  // simplest, doc-friendly shape: just a string
   contents: prompt,
+  generationConfig: {
+    temperature: 0.2, // be conservative: less hallucination, more precise matching
+  },
 });
 
 // Try to read text in a robust way
